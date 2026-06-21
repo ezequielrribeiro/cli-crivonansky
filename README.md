@@ -84,7 +84,7 @@ crivonansky/
 ### Via comando interno
 
 ```bash
-generate-plugin --name meu-comando
+/generate-plugin --name meu-comando
 ```
 
 Isso cria `commands/meu_comando.py` com a estrutura básica. Reinicie a CLI para usar o novo comando.
