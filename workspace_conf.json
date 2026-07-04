@@ -1,0 +1,18 @@
+{
+  "workspaces": {
+    "dev": {
+      "apps": [
+        { "app": "notepad++",   "desktop": 2 },
+        { "app": "chrome",      "params": "--new-window https://github.com", "desktop": 2 },
+        { "app": "spotify",     "desktop": 3 }
+      ]
+    },
+    "work": {
+      "apps": [
+        { "app": "outlook",     "desktop": 1 },
+        { "app": "slack",       "desktop": 1 },
+        { "app": "code",        "params": "C:\\projetos\\meuprojeto", "desktop": 2 }
+      ]
+    }
+  }
+}
