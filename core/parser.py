@@ -1,7 +1,10 @@
+import shlex
+
+
 class CommandParser:
     @staticmethod
     def parse(input_line: str):
-        parts = input_line.strip().split()
+        parts = shlex.split(input_line.strip())
 
         if not parts:
             return None, []
