@@ -5,6 +5,7 @@ import os
 class GeneratePluginCommand(Command):
     name = "generate-plugin"
     description = "Gera um novo plugin de comando"
+    help_text = "Uso: /generate-plugin --name <nome>\nExemplo: /generate-plugin --name meu-comando"
 
     def execute(self, args):
         parsed = self.parse_args(args)
@@ -35,29 +36,6 @@ class GeneratePluginCommand(Command):
 
         print(f"✅ Plugin criado com sucesso: {path}")
 
-    # -------------------------
-    # Helpers
-    # -------------------------
-
-    def parse_args(self, args):
-        result = {}
-        i = 0
-
-        while i < len(args):
-            if args[i].startswith("--"):
-                key = args[i][2:]
-
-                if i + 1 < len(args) and not args[i + 1].startswith("--"):
-                    result[key] = args[i + 1]
-                    i += 2
-                else:
-                    result[key] = True
-                    i += 1
-            else:
-                i += 1
-
-        return result
-
     def to_class_name(self, name: str):
         clean_name = name.replace("-", " ")
         return "".join(word.capitalize() for word in clean_name.split())
@@ -71,12 +49,14 @@ class GeneratePluginCommand(Command):
 class {class_name}(Command):
     name = "{command_name}"
     description = "Descreva o que este comando faz"
+    help_text = "Uso: /{command_name} --<parametro> <valor>\\nExemplo: /{command_name} --exemplo valor"
 
     def execute(self, args):
+        parsed = self.parse_args(args)
         print("Executando {command_name}")
 
         # Exemplo de args:
-        print("Args:", args)
+        print("Args:", parsed)
 
         # Exemplo usando contexto
         # registry = self.context.registry

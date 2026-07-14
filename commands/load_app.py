@@ -9,6 +9,10 @@ import shutil
 class LoadAppCommand(Command):
     name = "load-app"
     description = "Inicia aplicativos e move para Virtual Desktop (Windows) com suporte a params brutos"
+    help_text = (
+        "Uso: /load-app --app <nome> [--desktop <num>] [--params \"...\"]\n"
+        "     /load-app --workspace <nome>"
+    )
 
     def __init__(self):
         super().__init__()

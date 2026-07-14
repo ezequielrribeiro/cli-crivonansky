@@ -18,6 +18,9 @@ class CommandExecutor:
         if not command:
             return "[red]Comando não encontrado[/red]"
 
+        if any(arg in ("--help", "-h") for arg in args):
+            return command.get_usage()
+
         buffer = io.StringIO()
 
         with contextlib.redirect_stdout(buffer):
