@@ -1,0 +1,89 @@
+import subprocess
+import shlex
+from core.command import Command
+from commands.complements.task_plugin.services import TaskService
+
+
+class TaskCommand(Command):
+    name = "task"
+    description = "Executa a ferramenta de controle de tarefas em uma nova janela"
+    help_text = "Uso: /task start <codigo>\n     /task resume <codigo>\n     /task report <codigo>"
+
+    def execute(self, args):
+        """
+        Exemplo de uso:
+        task start ABC123
+        task resume ABC123
+        """
+
+        if (not args or (args[0] not in ['start', 'resume', 'report'])
+             or len(args) < 2):
+            print("Uso: task <start|resume|report> <codigo>")
+            return
+
+        if args[0] == "report":
+            codigo = args[1] if len(args) > 1 else None
+            if not codigo:
+                print("Informe o código da task")
+                return
+            service = TaskService()
+
+            report = service.report(codigo)
+            self._print_report(report)
+        else:
+            # Monta comando da tool
+            cmd = ["py -m ", "commands.complements.task_plugin.cli"] + args
+
+            # Monta comando PowerShell
+            ps_command = f"(Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned) ; (& .venv\\Scripts\\Activate.ps1);" + " ".join(cmd)
+
+            # Abre nova janela do PowerShell
+            self._run_in_powershell(ps_command, width=70, height=20)
+            print("Task iniciada em nova janela.")
+
+    def _run_in_powershell(self, command: str, width: int | None = None, height: int | None = None):
+        """
+        Executa um comando em uma nova janela do PowerShell, opcionalmente configurando tamanho.
+
+        :param command: Comando a ser executado
+        :param width: Largura da janela (colunas)
+        :param height: Altura da janela (linhas)
+        """
+
+        try:
+            # Monta comando de resize apenas se parâmetros forem informados
+            resize_cmd = ""
+            if width and height:
+                resize_cmd = (
+                    f"$size = New-Object System.Management.Automation.Host.Size({width},{height}); "
+                    "$host.UI.RawUI.WindowSize = $size; "
+                    "$host.UI.RawUI.BufferSize = $size; "
+                )
+
+            full_command = resize_cmd + command
+
+            ps_command = f'start powershell -NoExit -Command "{full_command}"'
+
+            subprocess.Popen(ps_command, shell=True)
+
+        except Exception as e:
+            print(f"[ERRO] Falha ao executar comando: {e}")
+
+    def _print_report(self, report):
+        def fmt(td):
+            s = int(td.total_seconds())
+            return f"{s//3600:02}:{(s%3600)//60:02}:{s%60:02}"
+
+        print("\n📊 RELATÓRIO\n")
+
+        print(f"⏱ Total: {fmt(report['total_time'])}")
+        print(f"📦 Sessões: {report['session_count']}")
+        print(f"⏸ Pausas: {report['pause_count']}")
+
+        print("\n📈 Sessões:")
+        for i, s in enumerate(report["sessions"], 1):
+            print(f"  {i}. {fmt(s)}")
+
+        print("\n📝 Pausas:")
+        for p in report["pauses"]:
+            print(f"  - {p['at']} → {p.get('note','')}")
