@@ -43,7 +43,7 @@ python crivonansky.py
 ## Comandos disponíveis
 
 | Comando | Descrição |
-|---|---|---|
+|---|---|
 | `/help` | Lista todos os comandos disponíveis |
 | `/clear` | Limpa a tela |
 | `/quit` | Sai da aplicação |
