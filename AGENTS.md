@@ -9,6 +9,7 @@
 ## Architecture
 
 - **`core/`** — framework: `Command` (ABC), `CommandRegistry`, `CLIContext`, `CommandParser` (uses `shlex`), `CommandExecutor` (captures stdout via `io.StringIO`), `load_commands` (dynamic import via `importlib`).
+- **`core/run/`** — task runner subsystem (gulp.js-style). `task`, `src`, `dest`, `series`, `parallel`, `watch`, `cmd`. Loads `runfile.py` dynamically. See dedicated section below.
 - **`commands/`** — plugins auto-discovered by `loader.py`. Any `.py` file with a class inheriting `Command` is loaded.
 - **`commands/complements/`** — internal dependencies of plugins (not auto-discovered). Sub-packages: `task_plugin/`, `db_tools_plugin/`, `load_app_plugin/` (includes `VirtualDesktop11.exe` binary).
 - **TUI** (`tui_app.py`) — Textual app. Built-in commands `/clear` and `/quit` are handled in TUI, not as plugins. Dropdown on `/` key, history with `↑`/`↓`.
@@ -28,7 +29,68 @@
 | `/convert-site` | `commands/convert_site.py` | Scrapes a URL to Markdown via `requests` + `BeautifulSoup` |
 | `/site-capture` | `commands/site_capture.py` | Opens a controlled Chrome (Selenium) session, captures current page as Markdown |
 | `/generate-plugin` | `commands/generate_plugin.py` | Scaffolds a new command plugin |
-| `/metrics-report` | `commands/metrics_report.py` | Trimester metrics report. Uses `rich` for tables (but disables ANSI/markup) |
+| `/run` | `commands/run_command.py` | Task runner (gulp.js-style). Subcommands: `run <task>`, `--tasks`, `watch <task>`, `init`. Loads tasks from `runfile.py` via `core/run/` |
+
+## Task Runner (`core/run/`)
+
+A gulp.js-inspired task runner. Define tasks in `runfile.py` (project root) using the `core.run` API:
+
+```python
+from core.run import task, src, dest, series, parallel, watch, cmd
+
+@task
+def build():
+    return src("src/**/*").pipe(dest("dist"))
+
+@task(deps=["clean"])
+def rebuild():
+    return series(clean, build)
+```
+
+### API
+
+| Function | Description |
+|---|---|
+| `task(name?, deps?)` | Decorator — registers a function as a task |
+| `src(patterns, base?)` | Returns `PipeStream` — glob file matching |
+| `dest(directory)` | Returns a transform — writes `VinylFile` to disk |
+| `series(...tasks)` | Composite — runs tasks sequentially |
+| `parallel(...tasks)` | Composite — runs tasks concurrently |
+| `watch(patterns, ...tasks, debounce=200)` | Watches files, runs tasks on change |
+| `cmd(command_line)` | Runs a registered CLI command (e.g., `cmd("/environment start dev")`) |
+
+### Modules in `core/run/`
+
+| File | Contents |
+|---|---|
+| `vinyl.py` | `VinylFile` — virtual file (path, relative, base, contents, cwd) |
+| `task_registry.py` | `TaskRegistry` — stores task name → `TaskDefinition` |
+| `task.py` | `TaskDefinition` — name, fn, deps, run() |
+| `series_parallel.py` | `Composite`, `series()`, `parallel()` |
+| `pipeline.py` | `PipeStream` — `.pipe()`, `.dest()`, `.through()` |
+| `src.py` | `src()` — glob → generator of `VinylFile` |
+| `dest.py` | `dest()` — writes files to disk |
+| `transforms.py` | Built-in transforms: `rename`, `replace`, `filter`, `through` |
+| `api.py` | Public user-facing API (`task`, `src`, `dest`, etc.) |
+| `watcher.py` | Watch mode (watchdog) |
+| `loader.py` | `load_runfile()` — dynamic import of `runfile.py` |
+
+### /run command
+
+| Subcommand | Description |
+|---|---|
+| `/run init` | Scaffolds a `runfile.py` with examples |
+| `/run --tasks` or `list` | Lists all registered tasks |
+| `/run run <taskname>` | Executes a task (default: `default`) |
+| `/run watch <taskname>` | Runs the task then watches for changes |
+
+### Execution model
+
+- `TaskDefinition.run()` resolves deps first, then executes the function.
+- If the function returns a `Composite` (from `series`/`parallel`), it is executed.
+- `series()` runs tasks sequentially; if one fails, the rest are aborted.
+- `parallel()` runs tasks in threads via `threading.Thread`.
+- `cmd()` calls `CommandExecutor.execute()` internally, bridging CLI commands as tasks.
 
 ## Key conventions
 

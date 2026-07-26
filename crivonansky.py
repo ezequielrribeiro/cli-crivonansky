@@ -8,11 +8,10 @@ from tui_app import MyCLIApp
 
 def main():
     registry = CommandRegistry()
-    context = CLIContext(registry)
+    executor = CommandExecutor(registry)
+    context = CLIContext(registry, executor)
 
     load_commands(registry, context)
-
-    executor = CommandExecutor(registry)
 
     app = MyCLIApp(executor)
     app.run()
