@@ -20,17 +20,16 @@ class DbtoolsCommand(Command):
 
         if not parsed_args:
             print("[INFO] Nenhuma ação especificada.")
-            return
+            return False, {"error": "nenhuma ação especificada"}
 
         if "optimize" in parsed_args:
-            self._handle_optimize(parsed_args["optimize"])
-            return
+            return self._handle_optimize(parsed_args["optimize"])
 
         if "install" in parsed_args:
-            self._handle_install(parsed_args)
-            return
+            return self._handle_install(parsed_args)
 
         print("[ERRO] Ação inválida.")
+        return False, {"error": "ação inválida"}
 
     # --------------------------
     # OPTIMIZE (abre nova janela)
@@ -38,16 +37,17 @@ class DbtoolsCommand(Command):
     def _handle_optimize(self, dump_path: str):
         if not os.path.exists(dump_path):
             print(f"[ERRO] Arquivo não encontrado: {dump_path}")
-            return
-
-        script_path = ""
+            return False, {"error": f"arquivo não encontrado: {dump_path}"}
 
         command = (
             f'py -m commands.complements.db_tools_plugin.dump_insert_optimizer '
             f'--input_file "{dump_path}"'
         )
 
-        self._run_in_powershell(command)
+        if not self._run_in_powershell(command):
+            return False, {"error": "falha ao abrir o PowerShell"}
+
+        return True, {"action": "optimize", "dump": dump_path, "command": command}
 
     # --------------------------
     # INSTALL (nova janela)
@@ -57,12 +57,12 @@ class DbtoolsCommand(Command):
 
         if not dump_path or not os.path.exists(dump_path):
             print(f"[ERRO] Arquivo não encontrado: {dump_path}")
-            return
+            return False, {"error": f"arquivo não encontrado: {dump_path}"}
 
         mysql_bin = self._resolve_mysql_binary()
         if not mysql_bin:
             print("[ERRO] mysql não encontrado.")
-            return
+            return False, {"error": "mysql não encontrado"}
 
         host = args.get("host", "localhost")
         user = args.get("user", "root")
@@ -72,7 +72,7 @@ class DbtoolsCommand(Command):
 
         if not database:
             print("[ERRO] --database é obrigatório")
-            return
+            return False, {"error": "--database é obrigatório"}
 
         port_part = f"-P {port}" if port else ""
         password_part = f"-p{password}" if password else "-p"
@@ -84,7 +84,15 @@ class DbtoolsCommand(Command):
             f'{database} < "{dump_path}"'
         )
 
-        self._run_in_powershell(command)
+        if not self._run_in_powershell(command):
+            return False, {"error": "falha ao abrir o PowerShell"}
+
+        return True, {
+            "action": "install",
+            "dump": dump_path,
+            "database": database,
+            "command": command,
+        }
 
     # --------------------------
     # POWERSHELL
@@ -98,8 +106,10 @@ class DbtoolsCommand(Command):
         try:
             ps_command = f'start powershell {no_exit_str} -Command "(Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned) ; (& .venv\\Scripts\\Activate.ps1); {command}"'
             subprocess.Popen(ps_command, shell=True)
+            return True
         except Exception as e:
             print(f"[ERRO] Falha ao executar: {e}")
+            return False
 
     # --------------------------
     # MYSQL

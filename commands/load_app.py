@@ -24,10 +24,10 @@ class LoadAppCommand(Command):
 
         if workspace:
             if isinstance(workspace, str):
-                self._run_workspace(workspace)
+                return self._run_workspace(workspace)
             else:
                 print("Use --workspace <nome> para carregar um workspace")
-            return
+                return False, {"error": "--workspace requer um nome"}
 
         app = parsed_args.get("app")
         desktop = parsed_args.get("desktop")
@@ -35,9 +35,10 @@ class LoadAppCommand(Command):
 
         if not app:
             print("Favor informar o app a ser iniciado, o caminho para o executável, ou use --workspace <nome>")
-            return
+            return False, {"error": "app não informado"}
 
-        self._launch_and_move(app, desktop, params)
+        ok = self._launch_and_move(app, desktop, params)
+        return ok, {"app": app} if ok else {"app": app, "error": "falha ao iniciar"}
 
     def _launch_and_move(self, app_name, desktop=None, params_str=""):
         app_command = self.resolve_app_command(app_name)
@@ -79,28 +80,40 @@ class LoadAppCommand(Command):
         if workspace_name not in self.workspaces:
             print(f"Workspace '{workspace_name}' não encontrado")
             self._list_workspaces()
-            return
+            return False, {"error": f"workspace '{workspace_name}' não encontrado"}
 
         apps = self.workspaces[workspace_name].get("apps", [])
         if not apps:
             print(f"Workspace '{workspace_name}' não possui aplicações")
-            return
+            return False, {"error": f"workspace '{workspace_name}' sem aplicações"}
 
         print(f"Carregando workspace '{workspace_name}'...\n")
+        launched = []
+        failed = []
         for entry in apps:
             app_name = entry.get("app")
             if not app_name:
                 print("  [SKIP] entrada sem 'app'")
+                failed.append("<sem app>")
                 continue
 
             desktop = entry.get("desktop")
             entry_params = entry.get("params", "")
 
             print(f"  Iniciando '{app_name}'...")
-            self._launch_and_move(app_name, desktop, entry_params)
+            if self._launch_and_move(app_name, desktop, entry_params):
+                launched.append(app_name)
+            else:
+                failed.append(app_name)
             time.sleep(0.5)
 
         print(f"\nWorkspace '{workspace_name}' carregado")
+
+        return (len(failed) == 0), {
+            "workspace": workspace_name,
+            "launched": launched,
+            "failed": failed,
+        }
 
     def _list_workspaces(self):
         if not self.workspaces:

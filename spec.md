@@ -153,8 +153,9 @@ crivonansky/
 1. Usuário digita comando
 2. Parser divide comando e argumentos
 3. Executor resolve comando via registry
-4. Command.execute(args) é chamado
+4. Command.execute(args) é chamado e retorna `(sucesso: bool, dados: dict | None)`
 5. Output é capturado e exibido na TUI
+6. O sinal e os dados ficam disponíveis em `executor.last_result`
 
 ---
 
@@ -174,10 +175,15 @@ crivonansky/
 
 | Método / Atributo | Assinatura | Obrigatório | Descrição |
 |---|---|---|---|
-| `execute` | `execute(self, args: list[str]) -> None` | Sim | Executa o comando. Output via `print()` |
+| `execute` | `execute(self, args: list[str]) -> tuple[bool, dict \| None]` | Sim | Executa o comando. Saída via `print()` e retorno padronizado `(sucesso, dados)` |
 | `parse_args` | `parse_args(self, args: list[str]) -> dict` | Não | Utilitário nativo para parsing de `--flag valor` |
 | `get_usage` | `get_usage(self) -> str` | Não | Retorna texto de ajuda do comando |
 | `help_text` | `help_text: str` | Não | Atributo de classe com sintaxe de uso. Usado por `get_usage()` |
+
+**Contrato de retorno do `execute`:** todo comando deve retornar uma tupla `(sucesso: bool, dados: dict | None)`.
+- `sucesso=True` indica êxito; `sucesso=False` indica falha.
+- `dados` é um dicionário opcional definido pelo desenvolvedor com informações adicionais (ex.: `{"file": ...}`, `{"count": ...}`).
+- O `CommandExecutor` captura esse retorno em `executor.last_result` (inicializado como `(True, None)`) e continua devolvendo a string do stdout para a TUI. Em caso de exceção, o executor retorna uma mensagem `[red]...[/red]` e marca `last_result` como falha.
 
 **Comportamento padrão de `--help`:** O executor intercepta `--help` ou `-h` nos argumentos antes de chamar `execute()` e exibe o texto retornado por `get_usage()`. Plugins podem sobrescrever `help_text` para personalizar a ajuda.
 

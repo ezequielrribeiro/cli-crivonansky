@@ -31,20 +31,20 @@ class EnvironmentCommand(Command):
     def execute(self, args):
         if not args:
             self._print_usage()
-            return
+            return False, {"error": "uso incompleto"}
 
         action = args[0].lower()
 
         # ✅ LIST
         if action == "list":
             show_running = "--running" in args
-            self._list_environments(only_running=show_running)
-            return
+            data = self._list_environments(only_running=show_running)
+            return True, {"environments": data}
 
         # ✅ START / STOP
         if len(args) < 2:
             self._print_usage()
-            return
+            return False, {"error": "uso incompleto"}
 
         envs = [arg.lower() for arg in args[1:] if not arg.startswith("--")]
 
@@ -53,38 +53,47 @@ class EnvironmentCommand(Command):
         if invalid_envs:
             print(f"Ambientes inválidos: {', '.join(invalid_envs)}")
             self._print_available_envs()
-            return
+            return False, {"invalid_envs": invalid_envs}
 
         if action not in ["start", "stop"]:
             print(f"Ação inválida: {action}")
             self._print_usage()
-            return
+            return False, {"error": f"ação inválida: {action}"}
 
+        ok = []
+        failed = []
         for env in envs:
             compose_file = self.environments[env]
 
             if not os.path.exists(compose_file):
                 print(f"[ERRO] Arquivo não encontrado: {compose_file}")
+                failed.append(env)
                 continue
 
             if action == "start":
                 command = f'docker compose -f "{compose_file}" up --build -d'
-                self._run_in_powershell(command)
-                print(f"[OK] Ambiente '{env}' iniciado")
-
-            elif action == "stop":
+            else:
                 command = f'docker compose -f "{compose_file}" down -v'
-                self._run_in_powershell(command)
-                print(f"[OK] Ambiente '{env}' encerrado")
+
+            if self._run_in_powershell(command):
+                verb = "iniciado" if action == "start" else "encerrado"
+                print(f"[OK] Ambiente '{env}' {verb}")
+                ok.append(env)
+            else:
+                failed.append(env)
+
+        return (len(failed) == 0), {"ok": ok, "failed": failed}
 
     # ✅ LIST COM CONTAINERS
     def _list_environments(self, only_running=False):
+        data = {}
         print("Ambientes disponíveis:\n")
 
         for name, path in self.environments.items():
             if not os.path.exists(path):
                 print(f"  - {name}")
                 print(f"    status: MISSING\n")
+                data[name] = "MISSING"
                 continue
 
             containers = self._get_containers(path)
@@ -95,6 +104,7 @@ class EnvironmentCommand(Command):
 
             print(f"  - {name}")
             print(f"    status: {status}")
+            data[name] = status
 
             print(f"    containers:")
             if not containers:
@@ -104,6 +114,8 @@ class EnvironmentCommand(Command):
                     print(f"      - {c['name']} ({c['state']})")
 
             print()
+
+        return data
 
     def _get_containers(self, compose_file):
         try:
@@ -150,8 +162,10 @@ class EnvironmentCommand(Command):
 
         try:
             subprocess.Popen(ps_command, shell=True)
+            return True
         except Exception as e:
             print(f"[ERRO] Falha ao executar comando: {e}")
+            return False
 
     def _print_usage(self):
         print("Uso:")

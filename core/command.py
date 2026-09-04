@@ -1,4 +1,7 @@
 from abc import ABC, abstractmethod
+from typing import Optional
+
+CommandResult = tuple[bool, Optional[dict]]
 
 
 class Command(ABC):
@@ -36,5 +39,12 @@ class Command(ABC):
         return result
 
     @abstractmethod
-    def execute(self, args: list[str]):
+    def execute(self, args: list[str]) -> CommandResult:
+        """Executa o comando.
+
+        Retorna uma tupla (sucesso: bool, dados: dict | None):
+        - sucesso True em caso de êxito, False em caso de falha.
+        - dados é um dicionário opcional com informações adicionais
+          definidas pelo desenvolvedor (ex.: {"file": ..., "count": ...}).
+        """
         pass

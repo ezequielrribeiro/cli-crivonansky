@@ -19,11 +19,11 @@ class ConvertSiteCommand(Command):
 
         if not url:
             print("[erro] Informe a URL do site (--site <url>)")
-            return
+            return False, {"error": "informe a URL do site"}
 
         if fmt != "md":
             print(f"[erro] Formato '{fmt}' nao suportado. Use 'md'.")
-            return
+            return False, {"error": f"formato '{fmt}' não suportado"}
 
         try:
             response = requests.get(url, timeout=15)
@@ -31,16 +31,16 @@ class ConvertSiteCommand(Command):
             response.encoding = response.apparent_encoding
         except requests.exceptions.Timeout:
             print(f"[erro] Timeout ao acessar {url}")
-            return
+            return False, {"error": f"timeout ao acessar {url}"}
         except requests.exceptions.ConnectionError:
             print(f"[erro] Nao foi possivel conectar em {url}")
-            return
+            return False, {"error": f"não foi possível conectar em {url}"}
         except requests.exceptions.HTTPError as e:
             print(f"[erro] Servidor retornou status {e.response.status_code}")
-            return
+            return False, {"error": f"servidor retornou status {e.response.status_code}"}
         except requests.exceptions.RequestException as e:
             print(f"[erro] Erro ao acessar {url}: {e}")
-            return
+            return False, {"error": str(e)}
 
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -53,7 +53,7 @@ class ConvertSiteCommand(Command):
 
         if not body:
             print("[erro] Pagina nao possui conteudo no body")
-            return
+            return False, {"error": "página sem conteúdo no body"}
 
         markdown_content = md(str(body), heading_style="ATX")
 
@@ -65,6 +65,7 @@ class ConvertSiteCommand(Command):
             f.write(f"# {title}\n\n{markdown_content}")
 
         print(f"Pagina convertida: {filepath}")
+        return True, {"file": filepath, "title": title, "url": url}
 
     def _sanitize_filename(self, text: str) -> str:
         text = text.lower().strip()

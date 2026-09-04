@@ -14,11 +14,11 @@ class GeneratePluginCommand(Command):
 
         if not plugin_name:
             print("[erro] Informe o nome do plugin (--name)")
-            return
+            return False, {"error": "informe o nome do plugin"}
 
         if "_" in plugin_name or any(c.isspace() for c in plugin_name) or len(args) > 2:
             print("[erro] O nome do comando não pode conter sublinhados (_) ou espaços em branco.")
-            return
+            return False, {"error": "nome do comando inválido"}
 
         file_name = f"{plugin_name.replace('-', '_').lower()}.py"
         class_name = self.to_class_name(plugin_name) + "Command"
@@ -29,12 +29,13 @@ class GeneratePluginCommand(Command):
 
         if os.path.exists(path):
             print(f"[erro] Plugin já existe: {path}")
-            return
+            return False, {"error": "plugin já existe", "path": path}
 
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
 
         print(f"✅ Plugin criado com sucesso: {path}")
+        return True, {"name": plugin_name, "path": path}
 
     def to_class_name(self, name: str):
         clean_name = name.replace("-", " ")
@@ -60,4 +61,7 @@ class {class_name}(Command):
 
         # Exemplo usando contexto
         # registry = self.context.registry
+
+        # Retorno padrão: (sucesso: bool, dados: dict | None)
+        return True, {{"args": parsed}}
 '''

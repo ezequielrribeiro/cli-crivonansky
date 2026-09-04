@@ -19,17 +19,18 @@ class TaskCommand(Command):
         if (not args or (args[0] not in ['start', 'resume', 'report'])
              or len(args) < 2):
             print("Uso: task <start|resume|report> <codigo>")
-            return
+            return False, {"error": "uso incompleto"}
 
         if args[0] == "report":
             codigo = args[1] if len(args) > 1 else None
             if not codigo:
                 print("Informe o código da task")
-                return
+                return False, {"error": "código não informado"}
             service = TaskService()
 
             report = service.report(codigo)
             self._print_report(report)
+            return True, {"report": report}
         else:
             # Monta comando da tool
             cmd = ["py -m ", "commands.complements.task_plugin.cli"] + args
@@ -38,8 +39,10 @@ class TaskCommand(Command):
             ps_command = f"(Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned) ; (& .venv\\Scripts\\Activate.ps1);" + " ".join(cmd)
 
             # Abre nova janela do PowerShell
-            self._run_in_powershell(ps_command, width=70, height=20)
+            if not self._run_in_powershell(ps_command, width=70, height=20):
+                return False, {"error": "falha ao abrir o PowerShell"}
             print("Task iniciada em nova janela.")
+            return True, {"action": args[0], "code": args[1], "opened": True}
 
     def _run_in_powershell(self, command: str, width: int | None = None, height: int | None = None):
         """
@@ -65,9 +68,11 @@ class TaskCommand(Command):
             ps_command = f'start powershell -NoExit -Command "{full_command}"'
 
             subprocess.Popen(ps_command, shell=True)
+            return True
 
         except Exception as e:
             print(f"[ERRO] Falha ao executar comando: {e}")
+            return False
 
     def _print_report(self, report):
         def fmt(td):

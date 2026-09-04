@@ -9,5 +9,8 @@ class HelpCommand(Command):
     def execute(self, args):
         print("Comandos disponíveis:\n")
 
-        for name, cmd in self.context.registry.all().items():
+        commands = self.context.registry.all()
+        for name, cmd in commands.items():
             print(f"{name} - {cmd.description}")
+
+        return True, {"count": len(commands)}

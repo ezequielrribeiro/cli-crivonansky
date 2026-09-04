@@ -98,6 +98,7 @@ def rebuild():
 - **Plugin discovery**: any `.py` in `commands/` with a class inheriting `Command` (not `Command` itself) is auto-loaded. Subdirs like `commands/complements/` are NOT auto-discovered.
 - **Config files**: root JSON files (`environment_conf.json`, `workspace_conf.json`, `metrics_report_conf.json`) are read by specific plugins. No shared config loader.
 - **`--help` / `-h`**: intercepted by `CommandExecutor` before `execute()` is called. Plugins override `help_text` class attribute to customize.
+- **`execute` return contract**: every `execute(args)` must `return (sucesso: bool, dados: dict | None)`. `True` = success, `False` = failure; `dados` is an optional dict with developer-defined info. No code path may return `None` (the executor defensively treats `None` as `(True, None)`). The executor stores the tuple in `executor.last_result` for programmatic use.
 - **`parse_args`**: built into `Command` base class. Handles `--flag value` and `--bool-flag`. Does NOT use `shlex` (the parser in `core/parser.py` uses `shlex` for the command line, but `Command.parse_args` does not).
 - **Output**: commands use `print()` — stdout is captured by `CommandExecutor` via `io.StringIO` and displayed in the TUI's `RichLog`.
 - **Error display**: use `print("[red]...[/red]")` — Rich markup is rendered by the TUI.

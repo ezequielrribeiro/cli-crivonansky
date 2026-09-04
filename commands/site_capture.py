@@ -20,20 +20,21 @@ class SiteCaptureCommand(Command):
         subcommand = args[0] if args and not args[0].startswith("--") else "capture"
 
         if subcommand == "start":
-            self._start()
+            return self._start()
         elif subcommand == "stop":
-            self._stop()
+            return self._stop()
         elif subcommand == "capture":
-            self._capture(args)
+            return self._capture(args)
         else:
             print(f"[erro] Subcomando desconhecido: {subcommand}")
             print("Uso: site-capture [start|capture|stop] [--format md]")
+            return False, {"error": f"subcomando desconhecido: {subcommand}"}
 
     def _start(self):
         global _driver
         if _driver is not None:
             print("[erro] Chrome ja esta em execucao")
-            return
+            return False, {"error": "chrome já em execução"}
         try:
             opts = Options()
             opts.add_argument("--start-maximized")
@@ -42,20 +43,23 @@ class SiteCaptureCommand(Command):
                 "Chrome iniciado. Navegue ate a pagina desejada "
                 "e execute o comando novamente para capturar."
             )
+            return True, {"started": True}
         except Exception as e:
             print(f"[erro] Falha ao iniciar Chrome: {e}")
+            return False, {"error": str(e)}
 
     def _stop(self):
         global _driver
         if _driver is None:
             print("[erro] Chrome nao esta em execucao")
-            return
+            return False, {"error": "chrome não está em execução"}
         try:
             _driver.quit()
         except Exception:
             pass
         _driver = None
         print("Chrome encerrado")
+        return True, {"stopped": True}
 
     def _capture(self, args):
         global _driver
@@ -64,21 +68,21 @@ class SiteCaptureCommand(Command):
                 "[erro] Chrome nao esta em execucao. "
                 "Execute 'site-capture' primeiro para iniciar."
             )
-            return
+            return False, {"error": "chrome não está em execução"}
 
         parsed = self.parse_args(args)
         fmt = parsed.get("format", "md")
 
         if fmt != "md":
             print(f"[erro] Formato '{fmt}' nao suportado. Use 'md'.")
-            return
+            return False, {"error": f"formato '{fmt}' não suportado"}
 
         try:
             url = _driver.current_url
             html = _driver.page_source
         except Exception as e:
             print(f"[erro] Falha ao capturar pagina: {e}")
-            return
+            return False, {"error": str(e)}
 
         soup = BeautifulSoup(html, "html.parser")
 
@@ -91,7 +95,7 @@ class SiteCaptureCommand(Command):
 
         if not body:
             print("[erro] Pagina nao possui conteudo no body")
-            return
+            return False, {"error": "página sem conteúdo no body"}
 
         markdown_content = md(str(body), heading_style="ATX")
 
@@ -103,6 +107,7 @@ class SiteCaptureCommand(Command):
             f.write(f"# {title}\n\n{markdown_content}")
 
         print(f"Pagina capturada: {filepath}")
+        return True, {"file": filepath, "title": title, "url": url}
 
     def _sanitize_filename(self, text: str) -> str:
         text = text.lower().strip()

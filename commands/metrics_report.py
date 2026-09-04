@@ -33,9 +33,9 @@ class MetricsReportCommand(Command):
                 "[bold red]Erro:[/] Informe --file ou configure o campo "
                 "[yellow]\"metrics_file\"[/] em metrics_report_conf.json"
             )
-            return
+            return False, {"error": "informe --file ou configure metrics_file"}
 
-        self.load_metrics(metrics_file)
+        return self.load_metrics(metrics_file)
 
     def _resolve_from_config(self):
         config_path = os.path.join(
@@ -82,8 +82,14 @@ class MetricsReportCommand(Command):
 
             self._print_report(report)
 
+            return True, {"metrics": report, "file": metrics_file_path}
+
         except FileNotFoundError:
             self.console.print("[bold red]Arquivo não encontrado.[/]")
+            return False, {"error": f"arquivo não encontrado: {metrics_file_path}"}
+        except Exception as e:
+            self.console.print(f"[bold red]Erro ao processar métricas:[/] {e}")
+            return False, {"error": str(e)}
 
     # -------------------------
     def _get_metrics_report_info(self):
