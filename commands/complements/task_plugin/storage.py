@@ -34,6 +34,14 @@ def append_event(codigo: str, event: dict):
     save(codigo, data)
 
 
+def list_all() -> dict:
+    return _load_db()
+
+
+def exists(codigo: str) -> bool:
+    return codigo in _load_db()
+
+
 def create(codigo: str):
     db = _load_db()
     if codigo in db:

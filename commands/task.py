@@ -2,26 +2,46 @@ import subprocess
 import shlex
 from core.command import Command
 from commands.complements.task_plugin.services import TaskService
+from commands.complements.task_plugin.domain import TaskState
 
 
 class TaskCommand(Command):
     name = "task"
     description = "Executa a ferramenta de controle de tarefas em uma nova janela"
-    help_text = "Uso: /task start <codigo>\n     /task resume <codigo>\n     /task report <codigo>"
+    help_text = ("Uso: /task start <codigo>\n"
+                 "     /task resume <codigo>\n"
+                 "     /task report <codigo>\n"
+                 "     /task list")
 
     def execute(self, args):
         """
         Exemplo de uso:
         task start ABC123
         task resume ABC123
+        task report ABC123
+        task list
         """
 
-        if (not args or (args[0] not in ['start', 'resume', 'report'])
-             or len(args) < 2):
-            print("Uso: task <start|resume|report> <codigo>")
+        if (not args or (args[0] not in ['start', 'resume', 'report', 'list'])
+             or (args[0] != 'list' and len(args) < 2)):
+            print("Uso: task <start|resume|report|list> <codigo>")
             return False, {"error": "uso incompleto"}
 
-        if args[0] == "report":
+        if args[0] == "list":
+            service = TaskService()
+            tasks = service.list_all()
+
+            if not tasks:
+                print("Nenhuma task cadastrada.")
+                return True, {"tasks": []}
+
+            print("📋 TASKS CADASTRADAS\n")
+            for t in tasks:
+                status = self._format_status(t["status"])
+                print(f"  • {t['codigo']}    {status}    {self._fmt(t['total'])}")
+
+            return True, {"tasks": tasks}
+        elif args[0] == "report":
             codigo = args[1] if len(args) > 1 else None
             if not codigo:
                 print("Informe o código da task")
@@ -73,6 +93,20 @@ class TaskCommand(Command):
         except Exception as e:
             print(f"[ERRO] Falha ao executar comando: {e}")
             return False
+
+    def _fmt(self, td):
+        s = int(td.total_seconds())
+        return f"{s//3600:02}:{(s%3600)//60:02}:{s%60:02}"
+
+    def _format_status(self, state):
+        if state == TaskState.RUNNING:
+            return "▶ running"
+        elif state == TaskState.PAUSED:
+            return "⏸ paused"
+        elif state == TaskState.FINISHED:
+            return "✔ finished"
+        else:
+            return "○ idle"
 
     def _print_report(self, report):
         def fmt(td):
