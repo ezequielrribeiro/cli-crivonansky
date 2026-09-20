@@ -73,7 +73,6 @@ O sistema deve:
 - Persistência em banco de dados
 - Autenticação/autorização
 - Distribuição via pip (fase futura)
-- Execução remota/API
 
 ### 📁 Estrutura de Diretórios
 
@@ -85,10 +84,12 @@ crivonansky/
 │   ├── context.py     # Injeção de dependências
 │   ├── parser.py      # Parsing de entrada
 │   ├── executor.py    # Orquestração
-│   └── loader.py      # Carga dinâmica de plugins
+│   ├── loader.py      # Carga dinâmica de plugins
+│   └── bootstrap.py   # build_executor() — wiring comum (TUI/API)
 ├── commands/          # Plugins (descoberta automática)
 │   ├── *.py           # Comandos individuais
 │   └── complements/   # Dependências internas dos plugins
+├── api_server.py      # API REST (FastAPI)
 ├── *.json             # Arquivos de configuração
 └── crivonansky.py     # Entry point
 ```
@@ -156,6 +157,47 @@ crivonansky/
 4. Command.execute(args) é chamado e retorna `(sucesso: bool, dados: dict | None)`
 5. Output é capturado e exibido na TUI
 6. O sinal e os dados ficam disponíveis em `executor.last_result`
+
+---
+
+## 🌐 API REST (`api_server.py`)
+
+A API REST expõe a execução de comandos da CLI via HTTP, usando o mesmo parser (`shlex`) e executor da TUI.
+
+### Endpoints
+
+| Endpoint | Descrição |
+|---|---|
+| `GET /health` | Health check — `{"status":"ok"}` |
+| `GET /commands` | Lista comandos registrados (`name`, `description`) |
+| `GET /commands/{name}` | Detalhe + ajuda do comando (aceita com ou sem `/` inicial) |
+| `POST /execute` | Executa uma linha de comando |
+
+### Contrato de `POST /execute`
+
+Requisição:
+
+```json
+{"command": "/environment start dev", "timeout": 30}
+```
+
+- `command` (obrigatório) — linha de comando como digitada na TUI.
+- `timeout` (opcional) — segundos; para comandos bloqueantes (`/run watch`, `/site-capture`).
+
+Resposta: `{success, output, data, error}`.
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `success` | `bool` | Resultado do comando (`(sucesso, dados)` retornado por `execute`) |
+| `output` | `str` | stdout capturado via `io.StringIO` (com markup Rich) |
+| `data` | `dict \| null` | Dados adicionais retornados pelo comando |
+| `error` | `str \| null` | Mensagem de falha, quando houver |
+
+Status codes: **200** executou (com `success` conforme o resultado), **400** comando vazio, **404** comando inexistente, **408** timeout excedido.
+
+### Isolamento de estado
+
+Cada requisição cria um executor **novo** via `core/bootstrap.py:build_executor()` — evita races em `executor.last_result` e em estado mutável das instâncias de comando entre requisições concorrentes. `importlib` mantém os módulos em cache, tornando o custo de recarga baixo.
 
 ---
 
@@ -340,6 +382,8 @@ Usuário criado: ezequiel
 - Implementação de comandos base (`/help`, `task hello`)
 - Implementação do comando `generate plugin`
 - Sistema básico de parsing de argumentos (`--flag`)
+- API REST (FastAPI) para execução de comandos via HTTP (`api_server.py`)
+- Extração do bootstrap comum em `core/bootstrap.py:build_executor()`
 
 ### 🟡 Pendentes / Próximos passos
 
@@ -350,7 +394,6 @@ Usuário criado: ezequiel
 - Estruturar plugins externos (pip install)
 - Criar sistema de templates (ex: Jinja2)
 - Adicionar logs estruturados
-- Suporte a execução assíncrona de comandos
 - Melhorar UI (painéis, sidebar, status)
 
 ### 🔵 Melhorias futuras (nível produto)

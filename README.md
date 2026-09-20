@@ -17,6 +17,7 @@ Framework de CLI extensível com interface TUI (Terminal User Interface) baseada
 - Geração automática de novos plugins via comando interno
 - Task runner no estilo gulp.js (tasks com src/dest, series/parallel, watch mode)
 - Integração híbrida: tasks podem chamar comandos da CLI via `cmd()`
+- API REST (FastAPI) que executa comandos da CLI via HTTP
 
 ---
 
@@ -37,6 +38,16 @@ pip install -r requirements.txt
 ```bash
 python crivonansky.py
 ```
+
+### REST API
+
+Para subir a API REST (FastAPI) e executar comandos via HTTP:
+
+```bash
+python api_server.py            # ou .\api.ps1 (ativa o .venv)
+```
+
+Opções: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--reload` (hot-reload do uvicorn). Veja a seção [API REST](#api-rest).
 
 ---
 
@@ -80,6 +91,7 @@ crivonansky/
 │   ├── parser.py          # Parsing de entrada (shlex)
 │   ├── executor.py        # Orquestração (captura stdout)
 │   ├── loader.py          # Carga dinâmica de plugins
+│   ├── bootstrap.py       # build_executor() — wiring comum (TUI/API)
 │   └── run/               # Task runner (gulp.js-style)
 │       ├── __init__.py    # Re-exports públicos
 │       ├── vinyl.py       # Arquivo virtual (VinylFile)
@@ -111,6 +123,8 @@ crivonansky/
 │   ├── load_app_plugin/
 │   └── work_analysis.py
 ├── tui_app.py             # Interface TUI (Textual)
+├── api_server.py          # API REST (FastAPI)
+├── api.ps1                # Launcher da API (ativa o .venv)
 ├── crivonansky.py         # Entry point
 ├── runfile.py             # Tasks do usuário (opcional)
 └── requirements.txt       # Dependências
@@ -169,6 +183,56 @@ def up():
 
 ---
 
+## API REST
+
+O Crivonansky expõe uma API REST (FastAPI) que executa os mesmos comandos da TUI via HTTP, usando o mesmo parser (`shlex`) e executor.
+
+### Endpoints
+
+| Endpoint | Descrição |
+|---|---|
+| `GET /health` | Health check — `{"status": "ok"}` |
+| `GET /commands` | Lista todos os comandos registrados (`name`, `description`) |
+| `GET /commands/{name}` | Detalhe + uso/ajuda do comando (aceita com ou sem `/` inicial) |
+| `POST /execute` | Executa uma linha de comando |
+
+### Executando comandos
+
+`POST /execute` recebe `{"command": "/environment start dev"}` e retorna `{success, output, data, error}`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/execute \
+  -H "Content-Type: application/json" \
+  -d '{"command": "/help"}'
+```
+
+```json
+{
+  "success": true,
+  "output": "Comandos disponíveis:\n\n/help - Lista comandos disponíveis\n...",
+  "data": {"count": 11},
+  "error": null
+}
+```
+
+- **`success`** — indica sucesso/falha da execução (negócio).
+- **`output`** — texto capturado do `print()` do comando (com markup Rich).
+- **`data`** — dicionário opcional retornado pelo comando; **`error`** — mensagem de falha quando houver.
+- Para comandos bloqueantes (`/run watch`, `/site-capture`), envie `timeout` em segundos: `{"command": "/run watch default", "timeout": 30}`.
+
+### Códigos de status
+
+| Status | Significado |
+|---|---|
+| `200` | Executou (com `success: true/false` conforme o resultado) |
+| `400` | Comando vazio |
+| `404` | Comando inexistente |
+| `408` | Timeout excedido |
+
+Note que cada requisição cria um executor **novo** (via `core/bootstrap.py:build_executor()`), garantindo isolamento de estado entre requisições concorrentes.
+
+---
+
 ## Como criar um plugin
 
 ### Via comando interno
@@ -208,6 +272,8 @@ class MeuComandoCommand(Command):
 
 - [Textual](https://textual.textualize.io/) — Framework TUI
 - [Rich](https://rich.readthedocs.io/) — Output estilizado
+- [FastAPI](https://fastapi.tiangolo.com/) — API REST
+- [uvicorn](https://www.uvicorn.org/) — Servidor ASGI
 - [watchdog](https://github.com/gorakhargosh/watchdog) — Watch mode
 - `importlib` — Carga dinâmica de plugins
 
