@@ -2,7 +2,8 @@
 
 ## Entrypoint & Run
 
-- Entry: `crivonansky.py` — bootstraps registry, context, loader, executor, then launches TUI.
+- Entry: `crivonansky.py` — bootstraps registry, context, loader, executor (via `core/bootstrap.py:build_executor()`), then launches TUI.
+- REST API entry: `api_server.py` — FastAPI server exposing command execution over HTTP. Run via `python api_server.py` (or `.\api.ps1` which activates `.venv` first). Options: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--reload`.
 - Run: `python crivonansky.py` (or `.\run.ps1` which activates `.venv` first).
 - Dependencies: `pip install -r requirements.txt` (Python 3.10+).
 
@@ -30,6 +31,21 @@
 | `/site-capture` | `commands/site_capture.py` | Opens a controlled Chrome (Selenium) session, captures current page as Markdown |
 | `/generate-plugin` | `commands/generate_plugin.py` | Scaffolds a new command plugin |
 | `/run` | `commands/run_command.py` | Task runner (gulp.js-style). Subcommands: `run <task>`, `--tasks`, `watch <task>`, `init`. Loads tasks from `runfile.py` via `core/run/` |
+
+## REST API (`api_server.py`)
+
+FastAPI server that executes CLI commands over HTTP.
+
+| Endpoint | Description |
+|---|---|
+| `GET /health` | Health check — `{"status":"ok"}` |
+| `GET /commands` | Lists all registered commands (`name`, `description`) |
+| `GET /commands/{name}` | Command detail + usage/help (accepts with or without leading `/`) |
+| `POST /execute` | Executes a command line. Body: `{"command": "/environment start dev", "timeout": 5}` |
+
+`POST /execute` response: `{success, output, data, error}`. Uses `shlex` via `CommandExecutor`, identical to the TUI. Status codes: **400** empty command, **404** unknown command, **408** timeout, **200** otherwise (with `success` flag). `timeout` (seconds) is optional for blocking commands (`/run watch`, `/site-capture`).
+
+Each request builds a **fresh** executor via `core/bootstrap.py:build_executor()` — state isolation between requests (avoids races in `executor.last_result` and per-command instance state). `importlib` caches modules, so reload cost is low.
 
 ## Task Runner (`core/run/`)
 

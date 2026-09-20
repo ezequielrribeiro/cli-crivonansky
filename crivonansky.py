@@ -1,17 +1,10 @@
-from core.registry import CommandRegistry
-from core.context import CLIContext
-from core.loader import load_commands
-from core.executor import CommandExecutor
+from core.bootstrap import build_executor
 
 from tui_app import MyCLIApp
 
 
 def main():
-    registry = CommandRegistry()
-    executor = CommandExecutor(registry)
-    context = CLIContext(registry, executor)
-
-    load_commands(registry, context)
+    executor = build_executor()
 
     app = MyCLIApp(executor)
     app.run()

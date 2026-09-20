@@ -1,6 +1,7 @@
 annotated-doc==0.0.4
 beautifulsoup4==4.13.4
 colorama==0.4.6
+fastapi==0.116.1
 linkify-it-py==2.1.0
 markdown-it-py==4.2.0
 markdownify==1.2.2
@@ -16,4 +17,5 @@ textual==8.2.7
 typer==0.26.7
 typing_extensions==4.15.0
 uc-micro-py==2.0.0
+uvicorn==0.35.0
 watchdog==6.0.0
