@@ -30,12 +30,21 @@ def task(name=None, deps=None):
 
 
 def cmd(command_line: str):
+    """Executa um comando da CLI e devolve seus dados de retorno.
+
+    O output continua sendo impresso (visivel na TUI do Crivonansky) e tambem
+    e devolvido para uso em fluxos, no formato {"success": bool, **dados}.
+    Retorna None apenas quando nao ha executor disponivel.
+    """
     if _executor is None:
         print("[red]Executor nao disponivel (cmd() usado fora de runfile?)[/red]")
-        return
+        return None
     result = _executor.execute(command_line)
     if result:
         print(result)
+
+    success, data = _executor.last_result
+    return {"success": success, **(data or {})}
 
 
 def watch(patterns: typing.Union[str, list[str]], *task_refs: typing.Any, debounce: int = 200):

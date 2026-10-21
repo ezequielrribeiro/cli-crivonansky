@@ -30,6 +30,9 @@
 | `/convert-site` | `commands/convert_site.py` | Scrapes a URL to Markdown via `requests` + `BeautifulSoup` |
 | `/site-capture` | `commands/site_capture.py` | Opens a controlled Chrome (Selenium) session, captures current page as Markdown |
 | `/generate-plugin` | `commands/generate_plugin.py` | Scaffolds a new command plugin |
+| `/send-capoeira-host` | `commands/send_capoeira_host.py` | Sends a plain-text prompt to an LLM via the CapoeiraHost API (`--host`, `--port`, `--prompt`, optional `--model`/`--system`/`--new-chat`/`--timeout`) |
+| `/run-git-cmd` | `commands/run_git_cmd.py` | Runs a `git` command in `--root-dir` (command must start with `git`) |
+| `/docker-container-run` | `commands/docker_container_run.py` | Runs a command inside a Linux Docker container via `docker exec ... sh -c` |
 | `/run` | `commands/run_command.py` | Task runner (gulp.js-style). Subcommands: `run <task>`, `--tasks`, `watch <task>`, `init`. Loads tasks from `runfile.py` via `core/run/` |
 
 ## REST API (`api_server.py`)
@@ -73,7 +76,7 @@ def rebuild():
 | `series(...tasks)` | Composite — runs tasks sequentially |
 | `parallel(...tasks)` | Composite — runs tasks concurrently |
 | `watch(patterns, ...tasks, debounce=200)` | Watches files, runs tasks on change |
-| `cmd(command_line)` | Runs a registered CLI command (e.g., `cmd("/environment start dev")`) |
+| `cmd(command_line)` | Runs a registered CLI command (e.g., `cmd("/environment start dev")`) and returns its data dict `{"success": bool, **data}` (includes `output`); also prints the output |
 
 ### Modules in `core/run/`
 

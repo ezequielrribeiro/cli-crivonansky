@@ -67,7 +67,28 @@ Opções: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--reload` 
 | `/convert-site` | Converte URL para Markdown |
 | `/site-capture` | Captura página via Selenium como Markdown |
 | `/generate-plugin --name <nome>` | Gera um novo plugin de comando |
+| `/send-capoeira-host` | Envia um prompt para um LLM via API do [CapoeiraHost](https://github.com/ezequielrribeiro/capoeira-host) |
+| `/run-git-cmd` | Executa um comando `git` em um diretório raiz informado |
+| `/docker-container-run` | Executa um comando dentro de um container Docker Linux |
 | `/run` | Task runner (gulp.js-style). Subcomandos: `run <task>`, `--tasks`, `watch <task>`, `init` |
+
+### Comandos utilitários
+
+```bash
+# Envia um prompt em texto plano para um LLM via CapoeiraHost
+/send-capoeira-host --host 127.0.0.1 --port 8080 --prompt "um texto \"qualquer\""
+/send-capoeira-host --prompt "resuma este texto" --model claude-sonnet --system "seja breve"
+
+# Executa um comando git em um diretório raiz (o comando deve iniciar com "git")
+/run-git-cmd --root-dir "C:\projetos\projeto-exemplo" --command "git diff --check"
+
+# Executa um comando dentro de um container Docker Linux
+/docker-container-run --container php-5 --command "php -v"
+```
+
+Os três comandos imprimem o output na tela do Crivonansky **e** o devolvem em
+`data.output` (`(sucesso, dados)`), permitindo consumir o resultado em fluxos
+criados com `/run` (via `cmd()`).
 
 ### Atalhos de teclado
 
@@ -116,6 +137,9 @@ crivonansky/
 │   ├── convert_site.py
 │   ├── site_capture.py
 │   ├── generate_plugin.py
+│   ├── send_capoeira_host.py
+│   ├── run_git_cmd.py
+│   ├── docker_container_run.py
 │   └── run_command.py    # Comando /run
 ├── commands/complements/  # Dependências internas (não auto-descobertas)
 │   ├── task_plugin/
@@ -179,7 +203,7 @@ def up():
 | `series(...tasks)` | Compõe tasks em execução sequencial |
 | `parallel(...tasks)` | Compõe tasks em execução paralela (threads) |
 | `watch(patterns, ...tasks, debounce=200)` | Monitora arquivos e executa tasks |
-| `cmd(command_line)` | Executa um comando da CLI como parte da task |
+| `cmd(command_line)` | Executa um comando da CLI como parte da task e devolve seus dados de retorno (`{"success": bool, **dados}`, incluindo `output`) |
 
 ---
 
