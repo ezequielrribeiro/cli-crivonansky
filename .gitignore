@@ -8,3 +8,7 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# Dados locais / temporarios (nao versionar)
+tasks.json
+temptest.txt
