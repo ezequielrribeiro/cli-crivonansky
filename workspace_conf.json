@@ -9,9 +9,9 @@
     },
     "work": {
       "apps": [
-        { "app": "outlook",     "desktop": 1 },
-        { "app": "slack",       "desktop": 1 },
-        { "app": "code",        "params": "C:\\projetos\\meuprojeto", "desktop": 2 }
+        { "app": "C:\\Users\\ezeqr\\AppData\\Local\\Programs\\VSCodium\\VSCodium.exe",        "params": "C:\\projetos\\crivonansky-tools", "desktop": 1 },
+        { "app": "C:\\Users\\ezeqr\\AppData\\Local\\Programs\\VSCodium\\VSCodium.exe",        "params": "C:\\projetos\\capoeira-host", "desktop": 1 },
+        { "app": "C:\\Users\\ezeqr\\AppData\\Local\\Programs\\Notion\\Notion.exe",       "desktop": 1 }
       ]
     }
   }
