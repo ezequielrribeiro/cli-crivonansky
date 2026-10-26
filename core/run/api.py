@@ -19,12 +19,16 @@ def task(name=None, deps=None):
         task_name = fn.__name__
         desc = (fn.__doc__ or "").strip()
         _registry.register(task_name, TaskDefinition(task_name, fn=fn, deps=[], description=desc))
+        fn._is_task = True
+        fn._task_name = task_name
         return fn
 
     def decorator(fn):
         task_name = name or fn.__name__
         desc = (fn.__doc__ or "").strip()
         _registry.register(task_name, TaskDefinition(task_name, fn=fn, deps=deps or [], description=desc))
+        fn._is_task = True
+        fn._task_name = task_name
         return fn
     return decorator
 

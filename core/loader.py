@@ -1,11 +1,20 @@
 import os
+import sys
 import importlib
 import inspect
+
 from core.command import Command
+
+# Raiz do projeto (diretório que contém `core/` e `commands/`), para que o
+# loader não dependa do diretório atual.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def load_commands(registry, context, package="commands"):
-    package_path = package.replace(".", "/")
+    package_path = os.path.join(PROJECT_ROOT, package.replace(".", os.sep))
+
+    if PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, PROJECT_ROOT)
 
     for file in os.listdir(package_path):
         if file.endswith(".py") and not file.startswith("__"):

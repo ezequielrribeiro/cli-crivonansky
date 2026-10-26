@@ -10,7 +10,24 @@ class CommandExecutor:
 
     def execute(self, input_line: str):
         name, args = CommandParser.parse(input_line)
+        return self._execute(name, args)
 
+    def execute_args(self, argv: list[str]):
+        """Executa a partir de uma lista de argumentos, sem passar por shlex.
+
+        Preserva caminhos do Windows (barras invertidas) e é usado pelo modo
+        não interativo.
+        """
+        if not argv:
+            self.last_result = (False, {"error": "comando vazio"})
+            return ""
+
+        name = argv[0]
+        if not name.startswith("/"):
+            name = f"/{name}"
+        return self._execute(name, argv[1:])
+
+    def _execute(self, name: str, args: list[str]):
         if not name:
             self.last_result = (False, {"error": "comando vazio"})
             return ""

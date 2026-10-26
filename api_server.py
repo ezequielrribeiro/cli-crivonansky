@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from core.bootstrap import build_executor
+from core.output import strip_markup
 
 app = FastAPI(
     title="Crivonansky API",
@@ -129,6 +130,9 @@ def execute(req: ExecuteRequest):
 
     result = _run_with_timeout(lambda: executor.execute(command_line), req.timeout)
 
+    if not isinstance(result, _TimeoutSentinel):
+        result = strip_markup(result)
+
     if isinstance(result, _TimeoutSentinel):
         return JSONResponse(
             status_code=408,
@@ -167,7 +171,7 @@ def execute(req: ExecuteRequest):
 def main():
     parser = argparse.ArgumentParser(description="Crivonansky REST API")
     parser.add_argument("--host", default="127.0.0.1", help="Host de bind (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8000, help="Porta (default: 8000)")
+    parser.add_argument("--port", type=int, default=8767, help="Porta (default: 8767)")
     parser.add_argument("--reload", action="store_true", help="Habilita hot-reload do uvicorn")
     args = parser.parse_args()
 

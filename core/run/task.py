@@ -15,19 +15,23 @@ class TaskDefinition:
         self.deps = deps or []
         self.description = description
 
-    def run(self, registry: TaskRegistry):
+    def run(self, registry: TaskRegistry) -> bool:
+        """Executa a task e devolve True em caso de sucesso."""
         for dep_name in self.deps:
             dep = registry.get(dep_name)
             if dep is None:
                 print(f"[red]Dependencia '{dep_name}' nao encontrada para task '{self.name}'[/red]")
-                return
-            dep.run(registry)
+                return False
+            if not dep.run(registry):
+                return False
 
         if self.fn is None:
             print(f"[yellow]Task '{self.name}' nao possui funcao[/yellow]")
-            return
+            return False
 
         result = self.fn()
 
         if result is not None and hasattr(result, "run"):
-            result.run(registry)
+            return bool(result.run(registry))
+
+        return True
