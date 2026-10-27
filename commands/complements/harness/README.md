@@ -33,6 +33,8 @@ python crivonansky.py harness run db:schema --table tb_veiculos
 python crivonansky.py harness run db:links
 python crivonansky.py harness run docs:import
 python crivonansky.py harness run code:index
+python crivonansky.py harness run code:preprocess
+python crivonansky.py harness run rag:serve --action start
 python crivonansky.py harness run rag:sync
 python crivonansky.py harness run rag:search --query "como cadastrar cliente" --source_kind db_schema
 
@@ -78,6 +80,7 @@ details: |
 | `context:pack` | read | Empacota arquivos em Markdown |
 | `file:read` | read | Lê arquivo com números de linha |
 | `code:index` | read | Gera o grafo com codeknow |
+| `code:preprocess` | read | Copia fontes + grafo + wiki do codeknow p/ o RAG |
 | `code:query` | read | Consulta o grafo |
 | `code:impact` | read | Impacto de alterar um símbolo |
 | `db:snapshot` | read | Schema MySQL (docker exec ou dump) |
@@ -85,6 +88,7 @@ details: |
 | `db:query` | read | SELECT/SHOW/DESCRIBE/EXPLAIN |
 | `db:links` | read | SQL embutido + FKs inferidas + includes |
 | `docs:import` | read | Manuais e tickets |
+| `rag:serve` | read | Inicia/para/consulta a API local do RAG |
 | `rag:sync` | read | Publica no RAG e ingere |
 | `rag:search` | read | Busca no RAG |
 | `git:run` | read/write | Comando git |

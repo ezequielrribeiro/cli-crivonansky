@@ -30,6 +30,28 @@ def _copy_tree_files(src: str, dst: str, extension: str | None = None) -> int:
     return count
 
 
+def _publish_tree(src: str, dst: str, extensions: set[str] | None = None) -> int:
+    """Espelha uma árvore no RAG, removendo antes o destino (evita resíduos)."""
+    if os.path.isdir(dst):
+        shutil.rmtree(dst)
+    if not os.path.isdir(src):
+        return 0
+
+    count = 0
+    for root, _dirs, files in os.walk(src):
+        for name in sorted(files):
+            extension = os.path.splitext(name)[1].lower()
+            if extensions and extension not in extensions:
+                continue
+            full = os.path.join(root, name)
+            relative = os.path.relpath(full, src)
+            target = os.path.join(dst, relative)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copy2(full, target)
+            count += 1
+    return count
+
+
 def _links_markdown(ctx) -> str:
     path = os.path.join(workspace(ctx), "knowledge", "links", "code-db-links.json")
     if not os.path.isfile(path):
@@ -87,6 +109,29 @@ def handle_sync(ctx, params):
         write_text(os.path.join(raw, "tech", "_harness", "links", "code-db-links.md"), links_md)
         copied += 1
 
+    # Código-fonte pré-processado por code:preprocess (PHP/Python/JavaScript).
+    code_target = os.path.join(raw, "tech", "_harness", "code")
+    code_copied = _publish_tree(
+        os.path.join(ws, "knowledge", "code", "src"),
+        os.path.join(code_target, "src"),
+        {".php", ".py", ".js"},
+    )
+    copied += code_copied
+
+    # Artefatos gerados pelo codeknow a partir do grafo AST.
+    graph_out = os.path.join(ws, "knowledge", "code", "codegraph-out")
+    report = os.path.join(graph_out, "GRAPH_REPORT.md")
+    if os.path.isfile(report):
+        os.makedirs(code_target, exist_ok=True)
+        shutil.copy2(report, os.path.join(code_target, "CODE_GRAPH_REPORT.md"))
+        copied += 1
+
+    copied += _publish_tree(
+        os.path.join(graph_out, "wiki"),
+        os.path.join(code_target, "wiki"),
+        {".md"},
+    )
+
     cmd = [rag_python, "main.py", "ingest"]
     if params.get("full"):
         cmd.append("--full")
@@ -100,9 +145,14 @@ def handle_sync(ctx, params):
     if res.exit_code != 0:
         return TaskResult(False, "ingestão do RAG falhou", details=res.combined, exit_code=res.exit_code)
 
+    summary = f"{copied} arquivo(s) publicados"
+    if code_copied:
+        summary += f" ({code_copied} fonte(s) de código)"
+    summary += "; ingestão concluída"
+
     return TaskResult(
         True,
-        f"{copied} arquivo(s) publicados; ingestão concluída",
+        summary,
         details=res.combined[-3000:],
     )
 

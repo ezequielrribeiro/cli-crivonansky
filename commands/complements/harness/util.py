@@ -73,6 +73,15 @@ def as_int(value, default: int) -> int:
         return default
 
 
+def as_bool(value, default: bool = False) -> bool:
+    """Aceita bool do YAML e as formas textuais vindas de --param/CLI."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def ensure_dir(path: str) -> str:
     os.makedirs(path, exist_ok=True)
     return path

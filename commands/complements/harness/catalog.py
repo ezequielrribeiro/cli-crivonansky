@@ -34,8 +34,10 @@ def load_tasks() -> None:
         links,
         patch,
         pipelines,
+        preprocess,
         prompt,
         rag,
+        rag_serve,
         shell,
     )
 

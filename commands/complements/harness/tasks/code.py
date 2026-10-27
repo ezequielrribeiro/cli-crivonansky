@@ -6,19 +6,19 @@ from ..catalog import register
 from ..config import get_tool
 from ..runner import run_process
 from ..types import TaskResult, TaskSpec
-from ..util import as_int, ensure_dir, legacy_repo, workspace
+from ..util import as_bool, as_int, ensure_dir, legacy_repo, workspace
 
 
-def _codeknow(ctx) -> str:
+def codeknow_bin(ctx) -> str:
     return get_tool(ctx.config, "codeknow") or "codeknow"
 
 
-def _out_dir(ctx) -> str:
+def out_dir(ctx) -> str:
     return ensure_dir(os.path.join(workspace(ctx), "knowledge", "code"))
 
 
-def _graph_path(ctx) -> str:
-    out = _out_dir(ctx)
+def graph_path(ctx) -> str:
+    out = out_dir(ctx)
     candidates = (
         os.path.join(out, "graph.json"),
         os.path.join(out, "codegraph-out", "graph.json"),
@@ -29,29 +29,37 @@ def _graph_path(ctx) -> str:
     return candidates[0]
 
 
-def _env() -> dict:
+def process_env(ctx=None) -> dict:
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
+    if ctx is not None:
+        # O codeknow grava cache em <CODEGRAPH_OUT>/cache/ mesmo quando o
+        # caminho vem de --out. Fixar o valor absoluto evita que o cache
+        # apareça dentro do repositório legado (ex.: no modo incremental).
+        env["CODEGRAPH_OUT"] = os.path.join(out_dir(ctx), "codegraph-out")
     return env
 
 
-def handle_index(ctx, params):
+def extract_graph(ctx, force: bool = False) -> TaskResult:
+    """Roda `codeknow extract` e valida a geração do graph.json."""
     repo = legacy_repo(ctx)
     if not os.path.isdir(repo):
         return TaskResult(False, f"repositório não encontrado: {repo}", exit_code=2)
 
-    out = _out_dir(ctx)
-    cmd = [_codeknow(ctx), "extract", repo, "--code-only", "--out", out]
-    if params.get("force"):
+    out = out_dir(ctx)
+    cmd = [codeknow_bin(ctx), "extract", repo, "--code-only", "--out", out]
+    if force:
         cmd.append("--force")
 
-    res = run_process(cmd, cwd=repo, timeout=1800, env=_env())
+    # Executa fora do repo: o codeknow pode criar cache/codegraph-out no cwd
+    # mesmo com --out absoluto, e o harness não deve escrever no legado.
+    res = run_process(cmd, cwd=workspace(ctx), timeout=1800, env=process_env(ctx))
     if res.timed_out:
         return TaskResult(False, "codeknow extract: timeout", details=res.combined, exit_code=124, status="timeout")
     if res.exit_code != 0:
         return TaskResult(False, "codeknow extract falhou", details=res.combined, exit_code=res.exit_code)
 
-    graph = _graph_path(ctx)
+    graph = graph_path(ctx)
     if not os.path.isfile(graph):
         return TaskResult(
             False,
@@ -69,16 +77,20 @@ def handle_index(ctx, params):
     )
 
 
+def handle_index(ctx, params):
+    return extract_graph(ctx, force=as_bool(params.get("force")))
+
+
 def _run_query(ctx, command: str, argument: str, params: dict):
-    graph = _graph_path(ctx)
+    graph = graph_path(ctx)
     if not os.path.isfile(graph):
         return TaskResult(False, "graph.json não encontrado; rode code:index", exit_code=2)
 
-    cmd = [_codeknow(ctx), command, argument, "--graph", graph]
+    cmd = [codeknow_bin(ctx), command, argument, "--graph", graph]
     if command == "query":
         cmd.extend(["--budget", str(as_int(params.get("budget"), 2000))])
 
-    res = run_process(cmd, cwd=legacy_repo(ctx), timeout=180, env=_env())
+    res = run_process(cmd, cwd=workspace(ctx), timeout=180, env=process_env(ctx))
     if res.timed_out:
         return TaskResult(False, f"codeknow {command}: timeout", details=res.combined, exit_code=124, status="timeout")
 
