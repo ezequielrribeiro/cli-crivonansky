@@ -292,6 +292,186 @@ Gerada em `workspace/harness.yaml` pelo `install.ps1`. O template
 marcador `{{PLUGIN_ROOT}}` pelo caminho absoluto. Também é possível apontar para
 outro arquivo com `--config` ou `HARNESS_CONFIG`.
 
+## Adicionar um projeto real
+
+A fixture `exemplo-locadora` é só referência. Para usar o harness com um projeto real,
+aponte o `harness.yaml` para ele. Durante a coleta, o harness não escreve no repositório
+legado; ações de escrita (`patch:apply`, `shell:run` etc.) passam pela política de
+confirmação.
+
+### 1. Configuração
+
+Edite `workspace/harness.yaml` (ou crie um config por projeto e use `--config` /
+`HARNESS_CONFIG`). Se quiser versionar a configuração, mantenha o YAML fora do
+`workspace/` (que é gitignored) e aponte `HARNESS_CONFIG` para ele. Exemplo:
+
+```yaml
+harness_version: 1
+workspace: C:/projetos/harness-configs/meu-legado/workspace
+
+legacy:
+  repo_path: C:/projetos/meu-legado
+  app_container: meu_php
+  db_container: meu_mysql
+  db_name: meu_banco
+  db_user_env: HARNESS_DB_USER
+  db_password_env: HARNESS_DB_PASSWORD
+  manuals_path: C:/projetos/meu-legado/docs/manuais
+  tickets_path: C:/projetos/meu-legado/docs/tickets
+  schema_dump: C:/projetos/meu-legado/banco/dump-estrutura.sql
+
+tools:
+  codeknow: C:/projetos/cli-crivonansky/commands/complements/harness/.venv/Scripts/codeknow.exe
+  python: C:/projetos/cli-crivonansky/commands/complements/harness/.venv/Scripts/python.exe
+  rag:
+    path: C:/projetos/cli-crivonansky/commands/complements/harness/vendor/local-rag-system
+    python: C:/projetos/cli-crivonansky/commands/complements/harness/vendor/local-rag-system/.venv/Scripts/python.exe
+    api: http://127.0.0.1:8000
+
+policy:
+  allowed_roots:
+    - C:/projetos/meu-legado
+    - C:/projetos/harness-configs/meu-legado/workspace
+
+pipelines:
+  verify:
+    - docker:exec: { container: meu_php, command: "php -l index.php" }
+  test:run:
+    - docker:exec: { container: meu_php, command: "vendor/bin/phpunit --colors=never {filter}" }
+```
+
+Campos essenciais:
+
+| Campo | Usado por | Observação |
+|---|---|---|
+| `legacy.repo_path` | `code:preprocess`, `db:links`, `git:run`, hooks | Repositório legado |
+| `legacy.app_container` | `docker:exec`, `logs:tail`, pipelines | Contêiner da aplicação |
+| `legacy.db_container` | `db:snapshot` live, `db:query` | Contêiner MySQL |
+| `legacy.db_name` | `db:snapshot`, `db:query` | Banco consultado |
+| `legacy.manuals_path` | `docs:import` | Aceita `.pdf`, `.md`, `.txt` |
+| `legacy.tickets_path` | `docs:import` | Lê `.json` de tickets |
+| `legacy.schema_dump` | `db:snapshot` fallback | Estrutura sem dados |
+| `policy.allowed_roots` | `file:read`, `shell:run`, `git:run`, `patch:apply` | Inclua repo e workspace; restringe `cwd`/caminhos, não é um sandbox de comandos |
+
+Credenciais sempre por ambiente:
+
+```powershell
+$env:HARNESS_DB_USER = "harness_read"
+$env:HARNESS_DB_PASSWORD = "sua-senha"
+```
+
+> Não rode `install --force` depois de personalizar o config: ele regenera o
+> `harness.yaml` a partir do template.
+
+### 2. Documentação
+
+```text
+meu-legado/docs/
+├── manuais/
+│   ├── manual-usuario.pdf
+│   └── manual-tecnico.md
+└── tickets/
+    └── tickets.json
+```
+
+- Manuais `.pdf/.md/.txt` são copiados para `knowledge/docs/manuals/` (RAG `user`).
+- Tickets em JSON viram Markdown em `knowledge/docs/tickets/` (RAG `support`); anexos
+  citados em `anexos` são copiados para `tickets/anexos/`.
+- Outros formatos de ticket não são convertidos: coloque-os em `manuais/` ou converta
+  para o JSON.
+
+Formato do `tickets.json`:
+
+```json
+{
+  "tickets": [
+    {
+      "id": "T-001",
+      "titulo": "Erro ao cadastrar cliente",
+      "descricao": "Ao salvar, o sistema exibe erro 500.",
+      "testadores": ["qa@empresa.com"],
+      "desenvolvedores": ["dev@empresa.com"],
+      "anexos": ["evidencias/erro.png"],
+      "comentarios": [
+        { "autor": "dev@empresa.com", "data": "2026-10-30", "texto": "Corrigido." }
+      ],
+      "tags": ["cadastro", "cliente"]
+    }
+  ]
+}
+```
+
+O `docs:import` também grava `knowledge/docs/manifest.json`.
+
+### 3. Ambiente do projeto
+
+Suba os contêineres pelo `/environment` (cadastre o `docker-compose.yml` em
+`environment_conf.json`) ou direto com `docker compose`. **Não use `start`/`prepare`
+para um projeto real**, porque eles sobem a fixture RotaCar. Use `start --no-docker`
+apenas se quiser iniciar só a API do RAG.
+
+```powershell
+docker ps --format "{{.Names}} {{.Status}}"
+python crivonansky.py harness run env:check
+```
+
+Sem Docker, use `db:snapshot --source dump`; `db:query`, `docker:exec` e `logs:tail`
+ficam indisponíveis.
+
+### 4. Coleta e indexação
+
+```powershell
+python crivonansky.py harness run db:snapshot
+python crivonansky.py harness run db:links
+python crivonansky.py harness run docs:import
+python crivonansky.py harness run code:preprocess
+python crivonansky.py harness run rag:serve --action start
+python crivonansky.py harness run rag:sync
+```
+
+Rode `code:preprocess` antes de `db:links` para melhorar o campo `symbol` (resolvido pelo
+grafo). `rag:sync --full` reindexa tudo; a ingestão não precisa da API, só `rag:search`.
+
+### 5. Validação
+
+```powershell
+python crivonansky.py harness run env:check
+python crivonansky.py harness run db:schema --table tb_clientes
+python crivonansky.py harness run db:query --sql "SELECT COUNT(*) FROM tb_clientes"
+python crivonansky.py harness run rag:search --query "como cadastrar cliente" --source_kind db_schema
+python crivonansky.py harness run code:query --q "nome_da_funcao"
+```
+
+Confira `workspace/knowledge/{db,links,docs,code}` e se `rag:search` retorna conteúdo do
+seu projeto (e não da fixture).
+
+### 6. Automação (opcional)
+
+```powershell
+python crivonansky.py harness hooks install    # post-commit/post-merge -> rag:sync
+python crivonansky.py harness run verify
+python crivonansky.py harness run test:run --filter MeuTeste
+```
+
+Ajuste `pipelines.verify`, `pipelines.test:run` e `pipelines.lint` para os comandos reais
+do projeto.
+
+### Checklist
+
+- [ ] `repo_path` existe e aponta para o projeto;
+- [ ] contêineres e `db_name` batem com o ambiente;
+- [ ] `HARNESS_DB_USER`/`HARNESS_DB_PASSWORD` definidos;
+- [ ] `manuals_path`/`tickets_path` existem;
+- [ ] `schema_dump` contém só estrutura;
+- [ ] `allowed_roots` inclui repo e workspace;
+- [ ] `pipelines` ajustadas;
+- [ ] `env:check`, `db:snapshot`, `db:links`, `docs:import`, `code:preprocess` e
+  `rag:sync` concluíram;
+- [ ] `rag:search` retorna conteúdo do projeto.
+
+O passo a passo completo, com exemplos adicionais, está no `README.md` raiz do
+repositório do harness.
+
 ## Testes
 
 ```powershell

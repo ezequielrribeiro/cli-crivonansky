@@ -157,7 +157,8 @@ python crivonansky.py harness env:check
 Tarefas de leitura rodam direto; tarefas de escrita pedem confirmação `y/N`. O `--yes`
 não vale para blocos vindos de resposta do LLM. Toda execução grava
 `commands/complements/harness/workspace/runs/<id>/` e gera um bloco
-`crivonansky-result`. A referência completa (flags, status e artefatos) está em
+`crivonansky-result`. A referência completa (flags, status e artefatos) e o passo a passo
+para apontar o harness para um projeto real estão em
 `commands/complements/harness/README.md`.
 
 ### Comandos utilitários
