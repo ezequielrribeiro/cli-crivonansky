@@ -59,7 +59,7 @@ Opções: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--reload` 
 | `/clear` | Limpa a tela |
 | `/quit` | Sai da aplicação |
 | `/task` | Controle de tarefas (start/resume/report) |
-| `/environment` | Gerencia ambientes Docker via docker-compose |
+| `/environment` | Gerencia ambientes Docker via docker-compose. Subcomandos: `list`, `start`, `stop`, `init` |
 | `/metrics-report` | Relatório trimestral de métricas |
 | `/load-app` | Lança apps e move para desktops virtuais |
 | `/db-tools` | Otimizador/instalador de dumps MySQL |
@@ -71,6 +71,94 @@ Opções: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--reload` 
 | `/run-git-cmd` | Executa um comando `git` em um diretório raiz informado |
 | `/docker-container-run` | Executa um comando dentro de um container Docker Linux |
 | `/run` | Task runner (gulp.js-style). Subcomandos: `run <task>`, `--tasks`, `watch <task>`, `init` |
+| `/harness` | Harness de desenvolvimento assistido (plugin autocontido). Subcomandos: `install`, `start`, `stop`, `prepare`, `preprocess`, `run`, `exec`, `tasks`, `env:check` |
+
+### Ambientes Docker (`/environment`)
+
+O comando lê `environment_conf.json` na raiz do projeto. Para criar um arquivo de exemplo:
+
+```text
+/environment init
+```
+
+O arquivo criado tem o formato:
+
+```json
+{
+  "environments": {
+    "meu-projeto": "C:/caminho/para/o/docker-compose.yml"
+  }
+}
+```
+
+Cada chave é o nome usado nos demais subcomandos e o valor é o caminho absoluto do
+`docker-compose.yml`. Use barras normais (`C:/...`) ou escape as invertidas (`C:\\...`).
+Se o arquivo já existir, `init` não sobrescreve — use `init --force` para recriá-lo.
+
+```text
+/environment list                # status dos ambientes e containers
+/environment list --running
+/environment start meu-projeto
+/environment stop meu-projeto
+```
+
+### Harness (`/harness`)
+
+O comando `/harness` é um plugin autocontido em
+`commands/complements/harness/`. Ele instala e opera o harness de desenvolvimento
+assistido, com venv, dependências, fixture, workspace e configuração próprios.
+
+Quando chamado com argumentos, executa o subcomando e sai com exit code (sem abrir a
+TUI). Sem argumentos, abre a TUI normalmente.
+
+| Subcomando | Uso | O que faz |
+|---|---|---|
+| `install` | `install [--force] [--skip-docker] [--check-only]` | Valida pré-requisitos, clona `vendor/`, cria os venvs e gera `workspace/harness.yaml` |
+| `start` | `start [--no-rag] [--no-docker]` | Sobe a fixture MySQL/PHP e a API do RAG (`--no-docker` sobe só o RAG) |
+| `stop` | `stop [--purge]` | Para o RAG e a fixture (`--purge` remove o volume) |
+| `prepare` | `prepare [--full] [--no-rag]` | Executa `db:snapshot`, `db:links`, `docs:import`, `code:preprocess`, `rag:sync` |
+| `preprocess` | `preprocess [--sync] [--full] [--no-codeknow] [--no-wiki]` | Copia o legado e roda o codeknow |
+| `config` | `config` | Mostra plugin, config, workspace, vendor, fixture e venv |
+| `exec` | `exec --clip \| --file F \| --stdin [--yes] [--dry-run]` | Executa blocos `crivonansky` |
+| `run` | `run <task> [--param k=v ...] [--yes] [--dry-run]` | Executa uma tarefa do catálogo |
+| `ask` | `ask "pergunta" [--context rag,code,db]` | Monta prompt com contexto e copia para o clipboard |
+| `prompt` | `prompt` | Copia o prompt de instrução do LLM |
+| `tasks` | `tasks` | Lista o catálogo de tarefas |
+| `runs` | `runs [--last N]` | Lista o histórico de execuções |
+| `hooks` | `hooks install\|uninstall\|status` | Gerencia hooks `post-commit`/`post-merge` |
+| `env:check` | `env:check` | Diagnostica git, Docker, codeknow e RAG |
+
+Opções globais e ambiente:
+
+- `--config CAMINHO` ou `HARNESS_CONFIG` escolhem outro `harness.yaml`;
+- `HARNESS_DB_USER` / `HARNESS_DB_PASSWORD` alimentam as tarefas `db:*`
+  (o `start` define `rotacar_read`/`readpass` por padrão).
+
+Exemplos:
+
+```powershell
+# ciclo completo
+python crivonansky.py harness install
+python crivonansky.py harness start
+python crivonansky.py harness start --no-docker   # só o RAG, sem fixture
+python crivonansky.py harness prepare
+python crivonansky.py harness stop --purge
+
+# uso do contrato
+python crivonansky.py harness run db:schema --table tb_veiculos
+python crivonansky.py harness exec --clip
+python crivonansky.py harness ask "como funciona o aluguel?" --context rag,code
+
+# diagnóstico
+python crivonansky.py harness config
+python crivonansky.py harness env:check
+```
+
+Tarefas de leitura rodam direto; tarefas de escrita pedem confirmação `y/N`. O `--yes`
+não vale para blocos vindos de resposta do LLM. Toda execução grava
+`commands/complements/harness/workspace/runs/<id>/` e gera um bloco
+`crivonansky-result`. A referência completa (flags, status e artefatos) está em
+`commands/complements/harness/README.md`.
 
 ### Comandos utilitários
 
@@ -140,12 +228,14 @@ crivonansky/
 │   ├── send_capoeira_host.py
 │   ├── run_git_cmd.py
 │   ├── docker_container_run.py
-│   └── run_command.py    # Comando /run
+│   ├── run_command.py     # Comando /run
+│   └── harness.py         # Comando /harness
 ├── commands/complements/  # Dependências internas (não auto-descobertas)
 │   ├── task_plugin/
 │   ├── db_tools_plugin/
 │   ├── load_app_plugin/
-│   └── work_analysis.py
+│   ├── work_analysis.py
+│   └── harness/           # Plugin autocontido (install, vendor, fixture, workspace)
 ├── tui_app.py             # Interface TUI (Textual)
 ├── api_server.py          # API REST (FastAPI)
 ├── api.ps1                # Launcher da API (ativa o .venv)

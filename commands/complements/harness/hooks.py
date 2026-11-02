@@ -5,7 +5,7 @@ import shutil
 import stat
 import sys
 
-from .config import get_legacy, get_workspace
+from .config import get_legacy_path, get_workspace
 from .util import ensure_dir
 
 HOOK_NAMES = ("post-commit", "post-merge")
@@ -61,7 +61,7 @@ def _settings(config: dict) -> tuple[list[str], str, str]:
     if not os.path.isabs(log):
         log = os.path.join(get_workspace(config), log)
 
-    repo = get_legacy(config, "repo_path")
+    repo = get_legacy_path(config, "repo_path")
     if not repo:
         raise ValueError("legacy.repo_path ausente no harness.yaml")
 

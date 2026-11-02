@@ -3,14 +3,14 @@
 import os
 
 from ..catalog import register
-from ..config import get_tool
+from ..config import get_tool_path
 from ..runner import run_process
 from ..types import TaskResult, TaskSpec
 from ..util import as_bool, as_int, ensure_dir, legacy_repo, workspace
 
 
 def codeknow_bin(ctx) -> str:
-    return get_tool(ctx.config, "codeknow") or "codeknow"
+    return get_tool_path(ctx.config, "codeknow") or "codeknow"
 
 
 def out_dir(ctx) -> str:

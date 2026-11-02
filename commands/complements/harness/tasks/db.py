@@ -8,7 +8,7 @@ import sqlglot
 from sqlglot import exp
 
 from ..catalog import register
-from ..config import get_legacy
+from ..config import get_legacy, get_legacy_path
 from ..runner import run_process
 from ..types import TaskResult, TaskSpec
 from ..util import (
@@ -372,6 +372,58 @@ def _table_markdown(table: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _links_section(ctx, table_name: str) -> str:
+    """Anexa ao Markdown da tabela o que o db:links encontrou no código."""
+    links_dir = os.path.join(workspace(ctx), "knowledge", "links")
+    links_path = os.path.join(links_dir, "code-db-links.json")
+    fks_path = os.path.join(links_dir, "fk-inferred.json")
+
+    links = []
+    if os.path.isfile(links_path):
+        with open(links_path, "r", encoding="utf-8") as fh:
+            links = [item for item in json.load(fh) if item.get("table") == table_name]
+
+    fks = []
+    if os.path.isfile(fks_path):
+        with open(fks_path, "r", encoding="utf-8") as fh:
+            fks = [
+                item
+                for item in json.load(fh)
+                if item.get("table") == table_name or item.get("ref_table") == table_name
+            ]
+
+    if not links and not fks:
+        return ""
+
+    parts = ["", "## Vínculos no código", ""]
+
+    if links:
+        parts.append("### Ocorrências")
+        parts.append("")
+        for link in sorted(links, key=lambda item: (item["file"], item["line"])):
+            symbol = f" em `{link['symbol']}`" if link.get("symbol") else ""
+            parts.append(
+                f"- `{link['file']}:{link['line']}` — {link['statement_kind']} "
+                f"({link['operation']}){symbol}"
+            )
+        parts.append("")
+
+    if fks:
+        parts.append("### Relações inferidas")
+        parts.append("")
+        for fk in sorted(fks, key=lambda item: (item["table"], item["columns"])):
+            columns = ", ".join(fk["columns"])
+            ref_columns = ", ".join(fk["ref_columns"])
+            parts.append(
+                f"- `{fk['table']}.{columns}` → `{fk['ref_table']}.{ref_columns}`"
+            )
+            for evidence in fk.get("evidence") or []:
+                parts.append(f"  - evidência: `{evidence}`")
+        parts.append("")
+
+    return "\n".join(parts)
+
+
 def _write_outputs(ctx, catalog: dict) -> list[str]:
     write_json(_catalog_path(ctx), catalog)
     artifacts = [_catalog_path(ctx)]
@@ -388,7 +440,7 @@ def _write_outputs(ctx, catalog: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 def handle_snapshot(ctx, params):
     source = str(params.get("source") or "auto").lower()
-    dump_path = get_legacy(ctx.config, "schema_dump")
+    dump_path = get_legacy_path(ctx.config, "schema_dump")
 
     catalog = None
     error = None
@@ -452,6 +504,8 @@ def handle_schema(ctx, params):
                 markdown += f"\n\n## Dicionário ({filename})\n\n```yaml\n"
                 markdown += read_text(os.path.join(dictionary_dir, filename))
                 markdown += "\n```\n"
+
+    markdown += _links_section(ctx, table_name)
 
     return TaskResult(True, f"schema da tabela {table_name}", details=markdown)
 

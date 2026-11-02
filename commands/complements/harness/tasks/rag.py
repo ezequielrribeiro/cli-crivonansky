@@ -7,10 +7,10 @@ import urllib.error
 import urllib.request
 
 from ..catalog import register
-from ..config import get_tool
+from ..config import get_tool, get_tool_path
 from ..runner import run_process
 from ..types import TaskResult, TaskSpec
-from ..util import as_int, ensure_dir, read_text, workspace, write_text
+from ..util import as_int, workspace
 
 
 def _copy_tree_files(src: str, dst: str, extension: str | None = None) -> int:
@@ -52,36 +52,9 @@ def _publish_tree(src: str, dst: str, extensions: set[str] | None = None) -> int
     return count
 
 
-def _links_markdown(ctx) -> str:
-    path = os.path.join(workspace(ctx), "knowledge", "links", "code-db-links.json")
-    if not os.path.isfile(path):
-        return ""
-
-    with open(path, "r", encoding="utf-8") as fh:
-        links = json.load(fh)
-
-    by_table: dict[str, list[dict]] = {}
-    for link in links:
-        by_table.setdefault(link["table"], []).append(link)
-
-    parts = ["# Vínculos código↔tabela", ""]
-    for table in sorted(by_table):
-        parts.append(f"## Tabela: {table}")
-        parts.append("")
-        for link in by_table[table]:
-            parts.append(
-                f"- `{link['file']}:{link['line']}` — {link['operation']} "
-                f"({link['statement_kind']})"
-            )
-        parts.append("")
-
-    return "\n".join(parts)
-
-
 def handle_sync(ctx, params):
-    rag = (ctx.config.get("tools") or {}).get("rag") or {}
-    rag_path = rag.get("path")
-    rag_python = rag.get("python")
+    rag_path = get_tool_path(ctx.config, "rag", "path")
+    rag_python = get_tool_path(ctx.config, "rag", "python")
     if not rag_path or not rag_python:
         return TaskResult(False, "tools.rag.path/python ausentes no harness.yaml", exit_code=2)
 
@@ -104,10 +77,13 @@ def handle_sync(ctx, params):
         ".md",
     )
 
-    links_md = _links_markdown(ctx)
-    if links_md:
-        write_text(os.path.join(raw, "tech", "_harness", "links", "code-db-links.md"), links_md)
-        copied += 1
+    # Vínculos código↔tabela, FKs inferidas, includes e visões por tabela.
+    # O db:links gera os Markdown; o sync espelha a árvore inteira.
+    copied += _publish_tree(
+        os.path.join(ws, "knowledge", "links"),
+        os.path.join(raw, "tech", "_harness", "links"),
+        {".md"},
+    )
 
     # Código-fonte pré-processado por code:preprocess (PHP/Python/JavaScript).
     code_target = os.path.join(raw, "tech", "_harness", "code")

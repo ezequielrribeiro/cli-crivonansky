@@ -1,0 +1,5 @@
+{
+  "environments": {
+    "projeto-locadora": "C:/projetos/cli-crivonansky/commands/complements/harness/fixture/exemplo-locadora/docker-compose.yml"
+  }
+}

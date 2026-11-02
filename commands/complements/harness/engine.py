@@ -39,6 +39,10 @@ class HarnessEngine:
         if not blocks:
             return [], "nenhum bloco ```crivonansky encontrado"
 
+        limit = int(self.output.get("max_blocks_per_message") or 5)
+        if limit > 0:
+            blocks = blocks[:limit]
+
         results = []
         for raw in blocks:
             result_text, status = self.handle_block(raw, yes_allowed=yes_allowed)

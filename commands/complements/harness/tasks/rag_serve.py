@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 
 from ..catalog import register
-from ..config import get_tool
+from ..config import get_tool, get_tool_path
 from ..runner import run_process
 from ..types import TaskResult, TaskSpec
 from ..util import as_int, ensure_dir, workspace
@@ -145,8 +145,10 @@ def _kill_pid(pid: int) -> bool:
 
 
 def _rag_tools(ctx) -> tuple[str | None, str | None]:
-    rag = (ctx.config.get("tools") or {}).get("rag") or {}
-    return rag.get("path"), rag.get("python")
+    return (
+        get_tool_path(ctx.config, "rag", "path"),
+        get_tool_path(ctx.config, "rag", "python"),
+    )
 
 
 def _status(ctx, api_base: str) -> TaskResult:

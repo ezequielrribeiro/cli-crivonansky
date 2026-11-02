@@ -1,7 +1,14 @@
-import subprocess
-import os
 import json
+import os
+import subprocess
+
 from core.command import Command
+
+SAMPLE_CONFIG = {
+    "environments": {
+        "meu-projeto": "C:/caminho/para/o/docker-compose.yml",
+    }
+}
 
 
 class EnvironmentCommand(Command):
@@ -10,19 +17,21 @@ class EnvironmentCommand(Command):
     help_text = (
         "Uso: /environment list [--running]\n"
         "     /environment start <env> [env2 ...]\n"
-        "     /environment stop <env> [env2 ...]"
+        "     /environment stop <env> [env2 ...]\n"
+        "     /environment init [--force]"
     )
 
     def __init__(self):
         self.environments = self._load_config()
 
+    def _config_path(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(root, "environment_conf.json")
+
     def _load_config(self):
-        config_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "environment_conf.json"
-        )
+        config_path = self._config_path()
         try:
-            with open(config_path, "r") as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
             return config.get("environments", {})
         except (FileNotFoundError, json.JSONDecodeError):
@@ -35,30 +44,37 @@ class EnvironmentCommand(Command):
 
         action = args[0].lower()
 
-        # ✅ LIST
+        # 1. LIST
         if action == "list":
             show_running = "--running" in args
             data = self._list_environments(only_running=show_running)
             return True, {"environments": data}
 
-        # ✅ START / STOP
+        # 2. INIT
+        if action == "init":
+            return self._init_config(force="--force" in args)
+
+        # 3. START / STOP
+        if action not in ("start", "stop"):
+            print(f"[red]Ação inválida: {action}[/red]")
+            self._print_usage()
+            return False, {"error": f"ação inválida: {action}"}
+
         if len(args) < 2:
             self._print_usage()
             return False, {"error": "uso incompleto"}
 
         envs = [arg.lower() for arg in args[1:] if not arg.startswith("--")]
+        if not envs:
+            self._print_usage()
+            return False, {"error": "nenhum ambiente informado"}
 
         invalid_envs = [e for e in envs if e not in self.environments]
 
         if invalid_envs:
-            print(f"Ambientes inválidos: {', '.join(invalid_envs)}")
+            print(f"[red]Ambientes inválidos: {', '.join(invalid_envs)}[/red]")
             self._print_available_envs()
             return False, {"invalid_envs": invalid_envs}
-
-        if action not in ["start", "stop"]:
-            print(f"Ação inválida: {action}")
-            self._print_usage()
-            return False, {"error": f"ação inválida: {action}"}
 
         ok = []
         failed = []
@@ -84,15 +100,53 @@ class EnvironmentCommand(Command):
 
         return (len(failed) == 0), {"ok": ok, "failed": failed}
 
-    # ✅ LIST COM CONTAINERS
+    def _init_config(self, force=False):
+        path = self._config_path()
+
+        if os.path.exists(path) and not force:
+            print(f"[yellow]environment_conf.json já existe: {path}[/yellow]")
+            print("Use [bold]/environment init --force[/bold] para sobrescrever.")
+            return False, {"error": "environment_conf.json já existe", "path": path}
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(SAMPLE_CONFIG, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+        except OSError as e:
+            print(f"[red]Falha ao criar {path}: {e}[/red]")
+            return False, {"error": str(e), "path": path}
+
+        self.environments = self._load_config()
+
+        print(f"[green]environment_conf.json criado em {path}[/green]")
+        print()
+        print('Preencha "environments" com nome -> caminho absoluto do docker-compose.yml:')
+        print()
+        print(json.dumps(SAMPLE_CONFIG, indent=2, ensure_ascii=False))
+        print()
+        print("Use barras normais (C:/...) ou escape as invertidas (C:\\...).")
+        print()
+        print("Depois:")
+        print("  /environment list")
+        print("  /environment start meu-projeto")
+        print("  /environment stop meu-projeto")
+
+        return True, {"path": path, "created": True}
+
+    # LIST COM CONTAINERS
     def _list_environments(self, only_running=False):
         data = {}
         print("Ambientes disponíveis:\n")
 
+        if not self.environments:
+            print("  (nenhum ambiente configurado)")
+            print("  Crie um environment_conf.json com: /environment init")
+            return data
+
         for name, path in self.environments.items():
             if not os.path.exists(path):
                 print(f"  - {name}")
-                print(f"    status: MISSING\n")
+                print("    status: MISSING\n")
                 data[name] = "MISSING"
                 continue
 
@@ -106,7 +160,7 @@ class EnvironmentCommand(Command):
             print(f"    status: {status}")
             data[name] = status
 
-            print(f"    containers:")
+            print("    containers:")
             if not containers:
                 print("      (nenhum)")
             else:
@@ -150,7 +204,7 @@ class EnvironmentCommand(Command):
         if not containers:
             return "STOPPED"
 
-        # Se pelo menos um container está rodando → RUNNING
+        # Se pelo menos um container está rodando -> RUNNING
         for c in containers:
             if c["state"] == "running":
                 return "RUNNING"
@@ -173,6 +227,7 @@ class EnvironmentCommand(Command):
         print("  environment list --running")
         print("  environment start <env> [env2 ...]")
         print("  environment stop <env> [env2 ...]")
+        print("  environment init [--force]")
         self._print_available_envs()
 
     def _print_available_envs(self):

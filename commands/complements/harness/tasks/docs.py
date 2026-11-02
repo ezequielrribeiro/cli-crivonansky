@@ -5,7 +5,7 @@ import os
 import shutil
 
 from ..catalog import register
-from ..config import get_legacy
+from ..config import get_legacy, get_legacy_path
 from ..types import TaskResult, TaskSpec
 from ..util import ensure_dir, workspace, write_json, write_text
 
@@ -14,7 +14,7 @@ ATTACHMENT_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".pdf"}
 
 
 def _copy_manuals(ctx) -> list[str]:
-    src = get_legacy(ctx.config, "manuals_path")
+    src = get_legacy_path(ctx.config, "manuals_path")
     dst = ensure_dir(os.path.join(workspace(ctx), "knowledge", "docs", "manuals"))
     copied = []
 
@@ -94,7 +94,7 @@ def _copy_attachments(src: str, dst: str, tickets: list[dict]) -> int:
 def handle(ctx, params):
     manuals = _copy_manuals(ctx)
 
-    tickets_src = get_legacy(ctx.config, "tickets_path")
+    tickets_src = get_legacy_path(ctx.config, "tickets_path")
     tickets_dir = ensure_dir(os.path.join(workspace(ctx), "knowledge", "docs", "tickets"))
     attachments_dir = ensure_dir(os.path.join(tickets_dir, "anexos"))
 
@@ -110,7 +110,7 @@ def handle(ctx, params):
         "tickets": [ticket.get("id") for ticket in tickets],
         "attachments": attachments,
         "sources": {
-            "manuals_path": tickets_src and get_legacy(ctx.config, "manuals_path"),
+            "manuals_path": get_legacy_path(ctx.config, "manuals_path"),
             "tickets_path": tickets_src,
         },
     }

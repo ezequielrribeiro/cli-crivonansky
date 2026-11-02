@@ -4,26 +4,27 @@ import os
 
 import yaml
 
-DEFAULT_CONFIG_PATH = os.environ.get(
-    "HARNESS_CONFIG",
-    os.path.join(os.getcwd(), "harness.yaml"),
-)
+# Raiz do plugin (commands/complements/harness).
+PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-FALLBACK_CONFIG_PATHS = [
-    "C:/projetos/harness-workspace/harness.yaml",
-]
-
+# Configuração gerada pelo instalador dentro do próprio plugin.
+DEFAULT_WORKSPACE = os.path.join(PLUGIN_ROOT, "workspace")
 
 class ConfigError(Exception):
     pass
 
 
+def default_config_path() -> str:
+    return os.environ.get(
+        "HARNESS_CONFIG",
+        os.path.join(DEFAULT_WORKSPACE, "harness.yaml"),
+    )
+
+
 def _candidates(path: str | None) -> list[str]:
     if path:
         return [path]
-    candidates = [DEFAULT_CONFIG_PATH]
-    candidates.extend(FALLBACK_CONFIG_PATHS)
-    return [c for c in candidates if c]
+    return [default_config_path()]
 
 
 def load_config(path: str | None = None) -> dict:
@@ -37,16 +38,29 @@ def load_config(path: str | None = None) -> dict:
             return data
 
     raise ConfigError(
-        "harness.yaml não encontrado. Informe --config, defina HARNESS_CONFIG "
-        "ou execute a partir do diretório que contém o arquivo."
+        "harness.yaml não encontrado. Rode '/harness install', informe --config "
+        "ou defina HARNESS_CONFIG."
     )
+
+
+def _base_dir(config: dict) -> str:
+    return os.path.dirname(os.path.abspath(config.get("_path") or default_config_path()))
+
+
+def resolve_path(config: dict, value: str | None) -> str | None:
+    """Resolve caminhos relativos ao diretório do harness.yaml."""
+    if not value:
+        return value
+    if os.path.isabs(value):
+        return os.path.abspath(value)
+    return os.path.abspath(os.path.join(_base_dir(config), value))
 
 
 def get_workspace(config: dict) -> str:
     workspace = config.get("workspace")
     if not workspace:
         raise ConfigError("campo 'workspace' ausente no harness.yaml")
-    workspace = os.path.abspath(workspace)
+    workspace = resolve_path(config, workspace)
     os.makedirs(workspace, exist_ok=True)
     return workspace
 
@@ -64,5 +78,19 @@ def get_tool(config: dict, *keys: str) -> str | None:
     return node
 
 
+def get_tool_path(config: dict, *keys: str) -> str | None:
+    """Como get_tool, mas resolve caminhos relativos ao harness.yaml."""
+    value = get_tool(config, *keys)
+    if not value:
+        return value
+    if os.path.isabs(value) or "/" in value or "\\" in value or value.lower().endswith(".exe"):
+        return resolve_path(config, value)
+    return value
+
+
 def get_legacy(config: dict, key: str, default=None):
     return (config.get("legacy") or {}).get(key, default)
+
+
+def get_legacy_path(config: dict, key: str, default=None):
+    return resolve_path(config, get_legacy(config, key, default))

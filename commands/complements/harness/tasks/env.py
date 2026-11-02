@@ -3,7 +3,7 @@
 import urllib.request
 
 from ..catalog import register
-from ..config import get_tool
+from ..config import get_tool, get_tool_path
 from ..runner import run_process
 from ..types import TaskResult, TaskSpec
 
@@ -36,7 +36,7 @@ def handle(ctx, params):
     ok_all = ok_all and ok
     lines.append(_line("docker", ok, "daemon acessível" if ok else "daemon indisponível"))
 
-    codeknow = get_tool(ctx.config, "codeknow") or "codeknow"
+    codeknow = get_tool_path(ctx.config, "codeknow") or "codeknow"
     res = run_process([codeknow, "--version"], timeout=60)
     ok = res.exit_code == 0 and not res.timed_out
     ok_all = ok_all and ok

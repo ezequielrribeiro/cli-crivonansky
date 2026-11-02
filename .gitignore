@@ -12,3 +12,7 @@ build/
 # Dados locais / temporarios (nao versionar)
 tasks.json
 temptest.txt
+
+# Harness: dependencias instaladas e artefatos gerados dentro do plugin
+commands/complements/harness/vendor/
+commands/complements/harness/workspace/

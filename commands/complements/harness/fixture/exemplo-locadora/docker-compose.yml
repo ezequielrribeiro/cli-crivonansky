@@ -1,0 +1,33 @@
+services:
+  rotacar_mysql:
+    image: mysql:8.0
+    container_name: rotacar_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: rotacar
+    volumes:
+      - ./banco/dump-estrutura.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  rotacar_php:
+    build: ./php
+    container_name: rotacar_php
+    ports:
+      - "8081:80"
+    environment:
+      ROTACAR_DB_HOST: rotacar_mysql
+      ROTACAR_DB_USER: rotacar_app
+      ROTACAR_DB_PASS: readpass
+    volumes:
+      - ./codigo-fonte:/var/www/html
+    depends_on:
+      - rotacar_mysql
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(0);"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

@@ -1,0 +1,51 @@
+{
+  "tickets": [
+    {
+      "id": "T-001",
+      "titulo": "Erro ao salvar cliente com CPF duplicado",
+      "descricao": "Ao cadastrar um cliente com CPF já existente, o sistema exibe um erro genérico em vez de uma mensagem amigável.",
+      "testadores": ["ana.souza@rotalivre.com.br"],
+      "desenvolvedores": ["carlos.lima@rotalivre.com.br"],
+      "anexos": ["anexos/t001-erro-cpf.png"],
+      "comentarios": [
+        { "autor": "ana.souza@rotalivre.com.br", "data": "2026-10-10", "texto": "Reproduzido no ambiente de homologação." },
+        { "autor": "carlos.lima@rotalivre.com.br", "data": "2026-10-11", "texto": "Vou tratar a exceção de chave única no cadastro/cliente.php." }
+      ],
+      "tags": ["bug", "cadastro", "cliente"]
+    },
+    {
+      "id": "T-002",
+      "titulo": "Campo de data de devolução aceita data anterior ao início",
+      "descricao": "No formulário de aluguel, é possível informar uma data de devolução anterior à data de início.",
+      "testadores": ["bruno.costa@rotalivre.com.br"],
+      "desenvolvedores": ["carlos.lima@rotalivre.com.br", "maria.oliveira@rotalivre.com.br"],
+      "anexos": ["anexos/t002-datas.png"],
+      "comentarios": [
+        { "autor": "bruno.costa@rotalivre.com.br", "data": "2026-10-12", "texto": "Validar também no servidor, não só no navegador." }
+      ],
+      "tags": ["bug", "aluguel", "validacao"]
+    },
+    {
+      "id": "T-003",
+      "titulo": "Relatório de aluguéis abertos",
+      "descricao": "Criar uma tela que liste os aluguéis em aberto usando a view vw_alugueis_abertos.",
+      "testadores": ["ana.souza@rotalivre.com.br"],
+      "desenvolvedores": ["maria.oliveira@rotalivre.com.br"],
+      "anexos": ["anexos/t003-relatorio.pdf"],
+      "comentarios": [
+        { "autor": "maria.oliveira@rotalivre.com.br", "data": "2026-10-14", "texto": "A view já existe; falta só a tela." }
+      ],
+      "tags": ["feature", "relatorio", "aluguel"]
+    },
+    {
+      "id": "T-004",
+      "titulo": "Documentar significado dos status de veículo",
+      "descricao": "Registrar no dicionário de dados o significado dos códigos de status da tabela tb_veiculos.",
+      "testadores": [],
+      "desenvolvedores": ["carlos.lima@rotalivre.com.br"],
+      "anexos": [],
+      "comentarios": [],
+      "tags": ["documentacao", "dicionario"]
+    }
+  ]
+}

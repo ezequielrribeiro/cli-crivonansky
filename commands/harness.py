@@ -1,21 +1,22 @@
 """Comando /harness — ponto de entrada do harness de desenvolvimento assistido."""
 
-import json
 import sys
-
-import yaml
 
 from core.command import Command
 
-from .complements.harness.catalog import all_tasks, get_task, load_tasks
-from .complements.harness.engine import HarnessEngine
-from .complements.harness.types import TaskContext
+from .complements.harness import ops
 
 
 class HarnessCommand(Command):
     name = "harness"
     description = "Executa o harness de desenvolvimento assistido"
     help_text = """Uso:
+  /harness install [--force] [--skip-docker] [--check-only]
+  /harness start [--no-rag] [--no-docker]
+  /harness stop [--purge]
+  /harness prepare [--full] [--no-rag]
+  /harness preprocess [--sync] [--full] [--no-codeknow] [--no-wiki]
+  /harness config
   /harness exec --clip | --file F | --stdin [--yes] [--dry-run]
   /harness run <task> [--param k=v ...] [--yes] [--dry-run]
   /harness ask "<pergunta>" [--context rag,code,db]
@@ -29,7 +30,6 @@ class HarnessCommand(Command):
     # ------------------------------------------------------------------
     def execute(self, args):
         args = list(args)
-        load_tasks()
 
         config_path = None
         if "--config" in args:
@@ -45,13 +45,64 @@ class HarnessCommand(Command):
             print(self.get_usage())
             return True, {"help": True}
 
-        if sub == "tasks":
-            specs = all_tasks()
-            for spec in specs:
-                print(f"{spec.name:<14} [{spec.intent:<5}] {spec.description}")
-            return True, {"count": len(specs)}
+        # Operações de ciclo de vida (não exigem PyYAML no host).
+        if sub == "install":
+            return self._op(
+                ops.install(
+                    force="--force" in rest,
+                    skip_docker="--skip-docker" in rest,
+                    check_only="--check-only" in rest or "--check" in rest,
+                )
+            )
+        if sub == "config":
+            info = ops.config_info()
+            for key, value in info.items():
+                print(f"{key}: {value}")
+            return True, info
+        if sub == "start":
+            return self._op(
+                ops.start(
+                    skip_rag="--no-rag" in rest,
+                    no_docker="--no-docker" in rest,
+                    config_path_arg=config_path,
+                )
+            )
+        if sub == "stop":
+            return self._op(
+                ops.stop(
+                    purge="--purge" in rest,
+                    config_path_arg=config_path,
+                )
+            )
+        if sub == "prepare":
+            return self._op(
+                ops.prepare(
+                    full="--full" in rest,
+                    skip_rag="--no-rag" in rest,
+                    config_path_arg=config_path,
+                )
+            )
+        if sub == "preprocess":
+            return self._op(
+                ops.preprocess(
+                    sync="--sync" in rest,
+                    full="--full" in rest,
+                    no_codeknow="--no-codeknow" in rest,
+                    no_wiki="--no-wiki" in rest,
+                    config_path_arg=config_path,
+                )
+            )
 
         try:
+            self._ensure_runtime()
+
+            if sub == "tasks":
+                from .complements.harness.catalog import all_tasks
+
+                specs = all_tasks()
+                for spec in specs:
+                    print(f"{spec.name:<14} [{spec.intent:<5}] {spec.description}")
+                return True, {"count": len(specs)}
             if sub == "exec":
                 return self._exec(config_path, rest)
             if sub == "run":
@@ -75,7 +126,32 @@ class HarnessCommand(Command):
         return False, {"error": "subcomando desconhecido"}
 
     # ------------------------------------------------------------------
+    def _ensure_runtime(self):
+        from .complements.harness.bootstrap import ensure_deps
+
+        if not ensure_deps():
+            raise RuntimeError(
+                "dependências do plugin não instaladas; rode '/harness install'"
+            )
+
+        from .complements.harness.catalog import load_tasks
+
+        load_tasks()
+
+    def _op(self, result):
+        if result.summary:
+            print(result.summary)
+        details = (result.details or "").strip()
+        if details and details != result.summary.strip():
+            print(details)
+        return result.success, {
+            "summary": result.summary,
+            "status": result.status,
+        }
+
     def _exec(self, config_path, args):
+        from .complements.harness.engine import HarnessEngine
+
         yes = "--yes" in args
         dry_run = "--dry-run" in args
 
@@ -125,6 +201,10 @@ class HarnessCommand(Command):
         yes=False,
         dry_run=False,
     ):
+        import yaml
+
+        from .complements.harness.engine import HarnessEngine
+
         engine = HarnessEngine(
             config_path=config_path,
             interactive=True,
@@ -137,6 +217,10 @@ class HarnessCommand(Command):
         return status == "success", {"status": status}
 
     def _ask(self, config_path, args):
+        from .complements.harness.catalog import get_task
+        from .complements.harness.engine import HarnessEngine
+        from .complements.harness.types import TaskContext
+
         context = "rag,code"
         question_parts = []
         index = 0
@@ -174,6 +258,9 @@ class HarnessCommand(Command):
                 result = spec.handler(ctx, {"q": question})
                 parts.extend(["## Contexto do código", "", result.details or result.summary, ""])
 
+        if "db" in context:
+            parts.extend(["## Contexto do banco", "", self._db_context(engine), ""])
+
         prompt = "\n".join(parts)
 
         copied = False
@@ -188,8 +275,46 @@ class HarnessCommand(Command):
         print(prompt)
         return True, {"copied": copied}
 
+    def _db_context(self, engine, max_chars: int = 8000) -> str:
+        """Resumo compacto do schema-catalog.json para o contexto do prompt."""
+        import json
+        import os
+
+        path = os.path.join(engine.workspace, "knowledge", "db", "schema-catalog.json")
+        if not os.path.isfile(path):
+            return "(schema-catalog.json não encontrado; rode db:snapshot)"
+
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                catalog = json.load(fh)
+        except (OSError, ValueError) as exc:  # noqa: BLE001
+            return f"(falha ao ler o catálogo: {exc})"
+
+        blocks = []
+        for table in catalog.get("tables") or []:
+            name = table.get("name", "?")
+            columns = table.get("columns") or []
+            cols = ", ".join(
+                f"{column.get('name', '?')} {column.get('type', '?')}".rstrip()
+                for column in columns
+            )
+            block = [f"### {name}", ""]
+            if table.get("comment"):
+                block.extend([f"_{table['comment']}_", ""])
+            block.append(cols)
+            blocks.append("\n".join(block))
+
+        if not blocks:
+            return "(nenhuma tabela no schema-catalog.json)"
+
+        text = "\n\n".join(blocks)
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n\n...(contexto do banco truncado)"
+        return text
+
     def _hooks(self, config_path, args):
         from .complements.harness import hooks
+        from .complements.harness.engine import HarnessEngine
 
         action = args[0] if args else "status"
         engine = HarnessEngine(config_path=config_path, interactive=False)
@@ -215,6 +340,8 @@ class HarnessCommand(Command):
         return False, {"error": "acao desconhecida"}
 
     def _runs(self, config_path, args):
+        from .complements.harness.engine import HarnessEngine
+
         count = 10
         if "--last" in args:
             index = args.index("--last")

@@ -1,0 +1,8 @@
+# Dependências Python do plugin harness.
+# O install.ps1 instala este arquivo no venv do plugin
+# (commands/complements/harness/.venv). O crivonansky carrega o venv do plugin
+# via bootstrap.ensure_deps() quando o interpretador atual não as tem.
+pyyaml>=6.0
+pyperclip>=1.8
+sqlglot>=30.0
+pytest>=8.0

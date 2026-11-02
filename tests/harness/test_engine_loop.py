@@ -44,6 +44,32 @@ def test_handle_text_processes_multiple_blocks(tmp_path):
     assert all(item["status"] == "success" for item in results)
 
 
+def test_handle_text_respects_max_blocks_per_message(tmp_path):
+    load_tasks()
+    register(
+        TaskSpec(
+            name="test:ok3",
+            intent="read",
+            description="",
+            required=[],
+            optional=[],
+            handler=lambda ctx, params: TaskResult(True, "ok"),
+        )
+    )
+    path = _config(tmp_path)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["output"]["max_blocks_per_message"] = 2
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    engine = HarnessEngine(config_path=str(path), interactive=False)
+
+    results, error = engine.handle_text(
+        "\n".join(_block("test:ok3") for _ in range(4))
+    )
+
+    assert error is None
+    assert len(results) == 2
+
+
 def test_handle_text_stops_on_failure(tmp_path):
     load_tasks()
     register(

@@ -18,6 +18,13 @@ def _context(tmp_path):
     (graph_out / "GRAPH_REPORT.md").write_text("# Grafo\n", encoding="utf-8")
     (graph_out / "wiki" / "index.md").write_text("# Wiki\n", encoding="utf-8")
 
+    links_dir = ws / "knowledge" / "links"
+    (links_dir / "tables").mkdir(parents=True)
+    (links_dir / "code-db-links.md").write_text("# Vínculos\n", encoding="utf-8")
+    (links_dir / "fk-inferred.md").write_text("# FKs\n", encoding="utf-8")
+    (links_dir / "includes.md").write_text("# Includes\n", encoding="utf-8")
+    (links_dir / "tables" / "tb_x.md").write_text("# Vínculos: tb_x\n", encoding="utf-8")
+
     return TaskContext(
         config={
             "legacy": {"repo_path": str(tmp_path / "repo")},
@@ -53,6 +60,14 @@ def test_rag_sync_publishes_preprocessed_code(tmp_path, monkeypatch):
     assert (raw / "wiki" / "index.md").is_file()
     assert commands == [["rag-python", "main.py", "ingest"]]
 
+    links_raw = (
+        tmp_path / "rag" / "data" / "raw" / "tech" / "_harness" / "links"
+    )
+    assert (links_raw / "code-db-links.md").is_file()
+    assert (links_raw / "fk-inferred.md").is_file()
+    assert (links_raw / "includes.md").is_file()
+    assert (links_raw / "tables" / "tb_x.md").is_file()
+
 
 def test_rag_sync_removes_stale_published_code(tmp_path, monkeypatch):
     ctx = _context(tmp_path)
@@ -69,6 +84,29 @@ def test_rag_sync_removes_stale_published_code(tmp_path, monkeypatch):
     )
     stale.parent.mkdir(parents=True)
     stale.write_text("<?php\n", encoding="utf-8")
+
+    monkeypatch.setattr(rag, "run_process", lambda *a, **k: ProcessResult(0, "ok", ""))
+
+    rag.handle_sync(ctx, {})
+
+    assert not stale.exists()
+
+
+def test_rag_sync_removes_stale_published_links(tmp_path, monkeypatch):
+    ctx = _context(tmp_path)
+    stale = (
+        tmp_path
+        / "rag"
+        / "data"
+        / "raw"
+        / "tech"
+        / "_harness"
+        / "links"
+        / "tables"
+        / "tb_obsoleta.md"
+    )
+    stale.parent.mkdir(parents=True)
+    stale.write_text("# velho\n", encoding="utf-8")
 
     monkeypatch.setattr(rag, "run_process", lambda *a, **k: ProcessResult(0, "ok", ""))
 

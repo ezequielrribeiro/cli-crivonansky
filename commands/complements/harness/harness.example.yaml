@@ -1,0 +1,57 @@
+harness_version: 1
+
+# O instalador substitui o marcador de raiz do plugin pelo caminho absoluto
+# ao gerar workspace/harness.yaml.
+workspace: "{{PLUGIN_ROOT}}/workspace"
+
+legacy:
+  # Fixture de referência do harness (RotaCar), versionada junto do plugin.
+  repo_path: "{{PLUGIN_ROOT}}/fixture/exemplo-locadora"
+  app_container: rotacar_php
+  db_container: rotacar_mysql
+  db_name: rotacar
+  db_user_env: HARNESS_DB_USER
+  db_password_env: HARNESS_DB_PASSWORD
+  manuals_path: "{{PLUGIN_ROOT}}/fixture/exemplo-locadora/manuais"
+  tickets_path: "{{PLUGIN_ROOT}}/fixture/exemplo-locadora/tickets"
+  schema_dump: "{{PLUGIN_ROOT}}/fixture/exemplo-locadora/banco/dump-estrutura.sql"
+
+tools:
+  # Venv do próprio plugin (deps + codeknow instalado editável).
+  codeknow: "{{PLUGIN_ROOT}}/.venv/Scripts/codeknow.exe"
+  python: "{{PLUGIN_ROOT}}/.venv/Scripts/python.exe"
+  rag:
+    # Repositório clonado pelo install.ps1 dentro do plugin.
+    path: "{{PLUGIN_ROOT}}/vendor/local-rag-system"
+    python: "{{PLUGIN_ROOT}}/vendor/local-rag-system/.venv/Scripts/python.exe"
+    api: http://127.0.0.1:8000
+
+output:
+  default_sinks: [stdout, clipboard]
+  max_chars:
+    clipboard: 12000
+  max_blocks_per_message: 5
+  max_loop_iterations: 3
+
+hooks:
+  tasks: ["rag:sync"]
+  log: runs/hooks.log
+
+policy:
+  auto_approve: [read]
+  confirm: [write]
+  llm_response_blocks: confirm_all
+  deny_patterns:
+    - '(?i)\brm\s+-rf\s+/'
+    - '(?i)Remove-Item\b.*-Recurse.*\b(C:\\|\\\\)'
+    - '(?i)\bgit\s+push\b.*--force'
+  allowed_roots:
+    - "{{PLUGIN_ROOT}}/fixture/exemplo-locadora"
+    - "{{PLUGIN_ROOT}}/workspace"
+
+pipelines:
+  verify:
+    - docker:exec: { container: rotacar_php, command: "php -l $(git diff --name-only)" }
+    - docker:exec: { container: rotacar_php, command: "vendor/bin/phpunit --colors=never" }
+  test:run:
+    - docker:exec: { container: rotacar_php, command: "vendor/bin/phpunit --colors=never {filter}" }

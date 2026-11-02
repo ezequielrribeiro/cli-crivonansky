@@ -307,6 +307,9 @@ O framework suporta arquivos JSON na raiz do projeto para configurar comandos es
 }
 ```
 
+O subcomando `/environment init` gera esse arquivo de exemplo na raiz do projeto. Se o
+arquivo já existir, ele não é sobrescrito; use `/environment init --force` para recriá-lo.
+
 ---
 
 ## 🔌 Exemplo de Plugin (Pseudo-código Python)

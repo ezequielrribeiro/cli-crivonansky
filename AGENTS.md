@@ -12,7 +12,7 @@
 - **`core/`** — framework: `Command` (ABC), `CommandRegistry`, `CLIContext`, `CommandParser` (uses `shlex`), `CommandExecutor` (captures stdout via `io.StringIO`), `load_commands` (dynamic import via `importlib`).
 - **`core/run/`** — task runner subsystem (gulp.js-style). `task`, `src`, `dest`, `series`, `parallel`, `watch`, `cmd`. Loads `runfile.py` dynamically. See dedicated section below.
 - **`commands/`** — plugins auto-discovered by `loader.py`. Any `.py` file with a class inheriting `Command` is loaded.
-- **`commands/complements/`** — internal dependencies of plugins (not auto-discovered). Sub-packages: `task_plugin/`, `db_tools_plugin/`, `load_app_plugin/` (includes `VirtualDesktop11.exe` binary).
+- **`commands/complements/`** — internal dependencies of plugins (not auto-discovered). Sub-packages: `task_plugin/`, `db_tools_plugin/`, `load_app_plugin/` (includes `VirtualDesktop11.exe` binary), and `harness/` (self-contained harness plugin with its own `.venv`, `vendor/`, `workspace/` and `fixture/`).
 - **TUI** (`tui_app.py`) — Textual app. Built-in commands `/clear` and `/quit` are handled in TUI, not as plugins. Dropdown on `/` key, history with `↑`/`↓`.
 - **Config files** (root JSON): `environment_conf.json`, `workspace_conf.json`, `metrics_report_conf.json` — read by specific plugins.
 
@@ -22,7 +22,7 @@
 |---|---|---|
 | `/help` | `commands/help.py` | Lists all registered commands |
 | `/task` | `commands/task.py` | Opens new PowerShell window. Subcommands: `start`, `resume`, `report`. Uses `commands/complements/task_plugin/` |
-| `/environment` | `commands/environment.py` | Docker compose management. Reads `environment_conf.json` |
+| `/environment` | `commands/environment.py` | Docker compose management. Reads `environment_conf.json`; `/environment init [--force]` creates a sample config |
 | `/metrics-report` | `commands/metrics_report.py` | Trimester metrics. Reads `metrics_report_conf.json`. Uses `commands/complements/work_analysis.py` |
 | `/load-app` | `commands/load_app.py` | Launch apps & move to virtual desktops. Reads `workspace_conf.json`. Uses `commands/complements/load_app_plugin/VirtualDesktop11.exe` |
 | `/db-tools` | `commands/db_tools.py` | MySQL dump optimizer/installer. Uses `commands/complements/db_tools_plugin/` |
@@ -34,6 +34,56 @@
 | `/run-git-cmd` | `commands/run_git_cmd.py` | Runs a `git` command in `--root-dir` (command must start with `git`) |
 | `/docker-container-run` | `commands/docker_container_run.py` | Runs a command inside a Linux Docker container via `docker exec ... sh -c` |
 | `/run` | `commands/run_command.py` | Task runner (gulp.js-style). Subcommands: `run <task>`, `--tasks`, `watch <task>`, `init`. Loads tasks from `runfile.py` via `core/run/` |
+| `/harness` | `commands/harness.py` | Harness plugin autocontido. Subcommands: `install`, `start`, `stop`, `prepare`, `preprocess`, `config`, `run`, `exec`, `tasks`, `runs`, `hooks`, `env:check`. Uses `commands/complements/harness/` (own `.venv`, `vendor/`, `workspace/`, `fixture/`) |
+
+## Harness plugin (`/harness`)
+
+The harness is a self-contained plugin under `commands/complements/harness/`. It owns its
+own `.venv/`, `vendor/` (clones of `local-rag-system` and `codeknow`), `workspace/`
+(`harness.yaml`, `knowledge/`, `runs/`) and `fixture/exemplo-locadora/`.
+
+| File | Responsibility |
+|---|---|
+| `commands/harness.py` | `/harness` command: parses subcommands and delegates lifecycle ops to `ops.py`; contract subcommands import the plugin lazily |
+| `commands/complements/harness/ops.py` | `install`, `start`, `stop`, `prepare`, `preprocess`, `config` |
+| `commands/complements/harness/install.ps1` | Installs the plugin: clones `vendor/`, creates venvs, installs requirements/codeknow, generates `workspace/harness.yaml` |
+| `commands/complements/harness/bootstrap.py` | Adds the plugin `.venv` site-packages to `sys.path` when the host venv lacks PyYAML/pyperclip/sqlglot |
+| `commands/complements/harness/config.py` | Loads `harness.yaml` (precedence: `--config` → `HARNESS_CONFIG` → `workspace/harness.yaml`) and resolves relative paths |
+| `commands/complements/harness/engine.py`, `contract.py`, `policy.py`, `formatter.py`, `sinks.py`, `runs.py` | Contract execution, policy, result envelope, sinks and run history |
+| `commands/complements/harness/tasks/` | Task catalog (`db:*`, `code:*`, `rag:*`, `docs:import`, `git:run`, `shell:run`, `docker:exec`, etc.) |
+
+Lifecycle subcommands:
+
+```text
+/harness install [--force] [--skip-docker] [--check-only]
+/harness start [--no-rag] [--no-docker]
+/harness stop [--purge]
+/harness prepare [--full] [--no-rag]
+/harness preprocess [--sync] [--full] [--no-codeknow] [--no-wiki]
+/harness config
+```
+
+Contract subcommands:
+
+```text
+/harness exec --clip | --file F | --stdin [--yes] [--dry-run]
+/harness run <task> [--param k=v ...] [--key value] [--yes] [--dry-run]
+/harness ask "pergunta" [--context rag,code,db]
+/harness prompt | tasks | runs [--last N] | env:check
+/harness hooks install|uninstall|status
+```
+
+Notes:
+
+- `start --no-docker` skips the fixture entirely and starts only the RAG API; with
+  `--no-rag` as well it is a no-op that returns `nada a iniciar`.
+- `commands/harness.py` must remain importable **without** PyYAML/sqlglot so that
+  `/harness install` works on a bare host venv. Keep heavy imports inside methods.
+- Do not add harness runtime deps (PyYAML, pyperclip, sqlglot) to the root
+  `requirements.txt`; they belong to `commands/complements/harness/requirements.txt`.
+- `run.ps1` forwards `@args` to `crivonansky.py`, so `.\run.ps1 harness ...` works.
+- Harness tests: `python -m pytest tests/harness -q` (host venv or the plugin `.venv`).
+- Full reference: `commands/complements/harness/README.md`.
 
 ## REST API (`api_server.py`)
 
@@ -130,7 +180,7 @@ def rebuild():
 
 ## Testing
 
-- No test framework is set up. No test files exist.
+- Run the automated tests with `.venv\Scripts\python.exe -m pytest tests -q` (harness + command tests).
 - Validation is manual: `python crivonansky.py` then type commands.
 - Syntax check: `.venv\Scripts\python.exe -m py_compile <file>`.
 

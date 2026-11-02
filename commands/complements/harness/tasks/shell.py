@@ -4,7 +4,7 @@ import shutil
 import sys
 
 from ..catalog import register
-from ..config import get_tool
+from ..config import get_tool_path
 from ..runner import run_process
 from ..types import TaskResult, TaskSpec
 from ..util import ensure_allowed, legacy_repo
@@ -42,7 +42,7 @@ def handle_shell(ctx, params):
 
 
 def handle_py(ctx, params):
-    python = get_tool(ctx.config, "python") or sys.executable
+    python = get_tool_path(ctx.config, "python") or sys.executable
     script = params.get("script")
     module = params.get("module")
     args = params.get("args") or []

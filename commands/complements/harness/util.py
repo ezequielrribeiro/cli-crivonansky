@@ -2,11 +2,11 @@
 
 import os
 
-from .config import get_legacy
+from .config import get_legacy_path
 
 
 def legacy_repo(ctx) -> str:
-    return os.path.abspath(get_legacy(ctx.config, "repo_path", "."))
+    return os.path.abspath(get_legacy_path(ctx.config, "repo_path", "."))
 
 
 def workspace(ctx) -> str:
