@@ -73,6 +73,18 @@ def as_int(value, default: int) -> int:
         return default
 
 
+def looks_like_path(value: str | None) -> bool:
+    """True quando o valor é um caminho (e não um nome de comando do PATH)."""
+    if not value:
+        return False
+    return (
+        os.path.isabs(value)
+        or "/" in value
+        or "\\" in value
+        or value.lower().endswith(".exe")
+    )
+
+
 def as_bool(value, default: bool = False) -> bool:
     """Aceita bool do YAML e as formas textuais vindas de --param/CLI."""
     if value is None:

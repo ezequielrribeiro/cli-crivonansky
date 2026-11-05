@@ -7,6 +7,7 @@ def _context(tmp_path):
     rag_path.mkdir()
     rag_python = rag_path / "python.exe"
     rag_python.write_text("", encoding="utf-8")
+    (rag_path / "main.py").write_text("print('rag')\n", encoding="utf-8")
 
     return TaskContext(
         config={
@@ -173,3 +174,28 @@ def test_rejects_invalid_action(tmp_path):
 
     assert result.success is False
     assert result.exit_code == 2
+
+
+def test_start_reports_missing_python_with_hint(tmp_path, monkeypatch):
+    ctx = _context(tmp_path)
+    missing = tmp_path / "rag" / ".venv" / "Scripts" / "python.exe"
+    ctx.config["tools"]["rag"]["python"] = str(missing)
+    monkeypatch.setattr(rag_serve, "_health", lambda *a, **k: (False, "off"))
+
+    result = rag_serve.handle(ctx, {"action": "start"})
+
+    assert result.success is False
+    assert result.exit_code == 2
+    assert "Python do RAG não encontrado" in result.summary
+    assert "harness install" in result.details
+
+
+def test_status_warns_when_tools_are_broken(tmp_path, monkeypatch):
+    ctx = _context(tmp_path)
+    ctx.config["tools"]["rag"]["python"] = str(tmp_path / "sumiu" / "python.exe")
+    monkeypatch.setattr(rag_serve, "_health", lambda *a, **k: (True, {"status": "ok"}))
+
+    result = rag_serve.handle(ctx, {"action": "status"})
+
+    assert result.success is True
+    assert "Python do RAG não encontrado" in result.details

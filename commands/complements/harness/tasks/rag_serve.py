@@ -20,8 +20,21 @@ from ..config import get_tool, get_tool_path
 from ..runner import run_process
 from ..task_types import TaskResult, TaskSpec
 from ..util import as_int, ensure_dir, workspace
+from .rag import tools_hint, tools_problem
 
 ACTIONS = {"start", "stop", "status", "restart"}
+
+
+def _tools_warning(ctx) -> str:
+    """Aviso quando tools.rag.* está quebrado (o rag:sync vai falhar)."""
+    problem = tools_problem(ctx.config)
+    if not problem:
+        return ""
+    return (
+        f"[aviso] {problem}\n"
+        "O rag:sync vai falhar até isso ser corrigido; rode /harness run rag:sync "
+        "para ver os caminhos configurados."
+    )
 
 
 def _target(ctx, params) -> tuple[str, int, str]:
@@ -158,6 +171,9 @@ def _status(ctx, api_base: str) -> TaskResult:
 
     if ok:
         details = json.dumps(data, ensure_ascii=False, indent=2)
+        warning = _tools_warning(ctx)
+        if warning:
+            details += "\n\n" + warning
         return TaskResult(
             True,
             f"API do RAG rodando em {api_base}",
@@ -173,19 +189,21 @@ def _status(ctx, api_base: str) -> TaskResult:
 def _start(ctx, host: str, port: int, api_base: str, timeout: float) -> TaskResult:
     ok, data = _check(api_base, timeout=2.0)
     if ok:
+        details = json.dumps(data, ensure_ascii=False, indent=2)
+        warning = _tools_warning(ctx)
+        if warning:
+            details += "\n\n" + warning
         return TaskResult(
             True,
             f"API do RAG já está rodando em {api_base}",
-            details=json.dumps(data, ensure_ascii=False, indent=2),
+            details=details,
         )
 
+    problem = tools_problem(ctx.config)
+    if problem:
+        return TaskResult(False, problem, details=tools_hint(ctx, problem), exit_code=2)
+
     rag_path, rag_python = _rag_tools(ctx)
-    if not rag_path or not rag_python:
-        return TaskResult(False, "tools.rag.path/python ausentes no harness.yaml", exit_code=2)
-    if not os.path.isdir(rag_path):
-        return TaskResult(False, f"diretório do RAG não encontrado: {rag_path}", exit_code=2)
-    if not os.path.isfile(rag_python):
-        return TaskResult(False, f"Python do RAG não encontrado: {rag_python}", exit_code=2)
     if _port_in_use(host, port):
         return TaskResult(
             False,

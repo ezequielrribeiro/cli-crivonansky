@@ -7,6 +7,7 @@ def _context(tmp_path):
     ws = tmp_path / "ws"
     rag_path = tmp_path / "rag"
     (rag_path / "data" / "raw").mkdir(parents=True)
+    (rag_path / "main.py").write_text("print('rag')\n", encoding="utf-8")
 
     src = ws / "knowledge" / "code" / "src"
     (src / "cadastro").mkdir(parents=True)
@@ -126,3 +127,40 @@ def test_rag_sync_reports_missing_config(tmp_path):
 
     assert result.success is False
     assert result.exit_code == 2
+    assert "ausentes" in result.summary
+
+
+def test_rag_sync_reports_missing_python(tmp_path):
+    ctx = _context(tmp_path)
+    missing = tmp_path / "rag" / ".venv" / "Scripts" / "python.exe"
+    ctx.config["tools"]["rag"]["python"] = str(missing)
+
+    result = rag.handle_sync(ctx, {})
+
+    assert result.success is False
+    assert result.exit_code == 2
+    assert "Python do RAG não encontrado" in result.summary
+    assert str(missing) in result.details
+    assert "harness install" in result.details
+
+
+def test_rag_sync_reports_missing_main_py(tmp_path):
+    ctx = _context(tmp_path)
+    (tmp_path / "rag" / "main.py").unlink()
+
+    result = rag.handle_sync(ctx, {})
+
+    assert result.success is False
+    assert result.exit_code == 2
+    assert "main.py não encontrado" in result.summary
+
+
+def test_rag_sync_reports_missing_rag_dir(tmp_path):
+    ctx = _context(tmp_path)
+    ctx.config["tools"]["rag"]["path"] = str(tmp_path / "nao-existe")
+
+    result = rag.handle_sync(ctx, {})
+
+    assert result.success is False
+    assert result.exit_code == 2
+    assert "diretório do RAG não encontrado" in result.summary

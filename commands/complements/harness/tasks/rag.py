@@ -10,7 +10,49 @@ from ..catalog import register
 from ..config import get_tool, get_tool_path
 from ..runner import run_process
 from ..task_types import TaskResult, TaskSpec
-from ..util import as_int, workspace
+from ..util import as_int, looks_like_path, workspace
+
+
+def tools_problem(config: dict) -> str | None:
+    """Descreve o problema com ``tools.rag.*`` (ou ``None`` se está tudo no lugar).
+
+    O ``rag:serve`` só valida isso quando precisa *iniciar* a API; se ela já
+    estiver no ar, um caminho quebrado passa despercebido e só aparece no
+    ``rag:sync`` como ``FileNotFoundError`` (WinError 2).
+    """
+    rag_path = get_tool_path(config, "rag", "path")
+    rag_python = get_tool_path(config, "rag", "python")
+    if not rag_path or not rag_python:
+        return "tools.rag.path/python ausentes no harness.yaml"
+    if not os.path.isdir(rag_path):
+        return f"diretório do RAG não encontrado: {rag_path}"
+    if looks_like_path(rag_python) and not os.path.isfile(rag_python):
+        return f"Python do RAG não encontrado: {rag_python}"
+    if not os.path.isfile(os.path.join(rag_path, "main.py")):
+        return f"main.py não encontrado em {rag_path}"
+    return None
+
+
+def tools_hint(ctx, problem: str) -> str:
+    """Explica como corrigir o problema, mostrando os caminhos configurados."""
+    config_path = (ctx.config or {}).get("_path") or "(harness.yaml não carregado)"
+    rag_path = get_tool_path(ctx.config, "rag", "path") or "(ausente)"
+    rag_python = get_tool_path(ctx.config, "rag", "python") or "(ausente)"
+    return "\n".join(
+        [
+            problem,
+            "",
+            f"config:           {config_path}",
+            f"tools.rag.path:   {rag_path}",
+            f"tools.rag.python: {rag_python}",
+            "",
+            "O venv do RAG é criado pelo instalador dentro de vendor/local-rag-system.",
+            "Para recriar/validar:",
+            "  python crivonansky.py harness install",
+            "  python crivonansky.py harness install --check-only",
+            "Se o RAG está em outro lugar, ajuste tools.rag.path/python no harness.yaml.",
+        ]
+    )
 
 
 def _copy_tree_files(src: str, dst: str, extension: str | None = None) -> int:
@@ -53,10 +95,17 @@ def _publish_tree(src: str, dst: str, extensions: set[str] | None = None) -> int
 
 
 def handle_sync(ctx, params):
+    problem = tools_problem(ctx.config)
+    if problem:
+        return TaskResult(
+            False,
+            problem,
+            details=tools_hint(ctx, problem),
+            exit_code=2,
+        )
+
     rag_path = get_tool_path(ctx.config, "rag", "path")
     rag_python = get_tool_path(ctx.config, "rag", "python")
-    if not rag_path or not rag_python:
-        return TaskResult(False, "tools.rag.path/python ausentes no harness.yaml", exit_code=2)
 
     raw = os.path.join(rag_path, "data", "raw")
     ws = workspace(ctx)

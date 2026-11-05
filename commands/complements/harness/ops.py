@@ -57,9 +57,9 @@ def ensure_config(config_path_arg: str | None = None, force: bool = False) -> st
     return str(write_default_config(PLUGIN_ROOT, force=force))
 
 
-def config_info() -> dict:
+def config_info(config_path_arg: str | None = None) -> dict:
     workspace = PLUGIN_ROOT / "workspace"
-    return {
+    info = {
         "plugin": str(PLUGIN_ROOT),
         "config": str(config_path(PLUGIN_ROOT)),
         "workspace": str(workspace),
@@ -67,6 +67,45 @@ def config_info() -> dict:
         "fixture": str(FIXTURE_ROOT),
         "venv": str(PLUGIN_ROOT / ".venv"),
     }
+    _add_tools_info(info, config_path_arg)
+    return info
+
+
+def _add_tools_info(info: dict, config_path_arg: str | None = None) -> None:
+    """Mostra os tools.* resolvidos (best-effort: /harness config roda sem PyYAML)."""
+    try:
+        from .config import get_tool_path, load_config
+    except Exception:  # noqa: BLE001 - dependências do plugin ainda não instaladas
+        return
+
+    path = resolve_config(config_path_arg)
+    if not path:
+        info["tools"] = "(harness.yaml ainda não gerado)"
+        return
+    info["config"] = path
+
+    try:
+        config = load_config(path)
+    except Exception as exc:  # noqa: BLE001
+        info["tools"] = f"(falha ao ler {path}: {exc})"
+        return
+
+    for label, keys in (
+        ("python", ("python",)),
+        ("codeknow", ("codeknow",)),
+        ("rag_path", ("rag", "path")),
+        ("rag_python", ("rag", "python")),
+    ):
+        value = get_tool_path(config, *keys)
+        info[label] = value or "(nao configurado)"
+        if value and (
+            os.path.isabs(value)
+            or "/" in value
+            or "\\" in value
+            or value.lower().endswith(".exe")
+        ):
+            checker = os.path.isdir if label == "rag_path" else os.path.isfile
+            info[f"{label}_exists"] = checker(value)
 
 
 def _set_db_env(config_path_arg: str) -> None:

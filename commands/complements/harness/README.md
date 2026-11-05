@@ -101,7 +101,7 @@ Para reinstalar dependências do zero, remova `vendor/` e/ou `.venv/` e rode
 | `stop` | Para o RAG e derruba a fixture | `--purge` |
 | `prepare` | `start` + coleta completa + `rag:sync` | `--full`, `--no-rag` |
 | `preprocess` | codeknow (cópia + grafo + relatório + wiki) | `--sync`, `--full`, `--no-codeknow`, `--no-wiki` |
-| `config` | Mostra caminhos do plugin/workspace/vendor/fixture/venv | — |
+| `config` | Mostra caminhos do plugin/workspace/vendor/fixture/venv e os `tools.*` resolvidos (`*_exists`) | — |
 
 ```text
 /harness start                # MySQL/PHP + API do RAG
@@ -548,3 +548,4 @@ commands\complements\harness\.venv\Scripts\python.exe -m pytest tests/harness -q
 | `Acesso negado` ao criar `vendor/`/`workspace/` | pasta dentro de `Program Files`/OneDrive ou sem permissão | mova o repositório para uma pasta do usuário; `harness install --check-only` testa a escrita |
 | RAG não instala por falta de wheel | Python mais novo que 3.13 (ex.: 3.14) sem wheel de `torch` | instale o 3.13 e rode `harness install --python C:\Python313\python.exe` |
 | `db:links` parece travado | saída do comando é capturada até o fim | veja o progresso no painel da TUI, no `stderr` da CLI ou em `<run_dir>/progress.log` |
+| `rag:sync` falha com `WinError 2`/`não foi possível localizar o executável` | `tools.rag.python` aponta para um `python.exe` inexistente; o `rag:serve` só valida ao iniciar a API | `harness config` mostra `rag_python_exists`; rode `harness install` (ou ajuste `tools.rag.*`) e confirme com `harness run env:check` |

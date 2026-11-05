@@ -56,7 +56,7 @@ class HarnessCommand(Command):
                 )
             )
         if sub == "config":
-            info = ops.config_info()
+            info = ops.config_info(config_path)
             for key, value in info.items():
                 print(f"{key}: {value}")
             return True, info
