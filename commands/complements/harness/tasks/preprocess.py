@@ -17,7 +17,8 @@ import re
 import shutil
 
 from ..catalog import register
-from ..types import TaskResult, TaskSpec
+from ..progress import for_context
+from ..task_types import TaskResult, TaskSpec
 from ..util import as_bool, ensure_dir, legacy_repo, workspace, write_json
 from . import code as code_task
 
@@ -74,7 +75,7 @@ def _iter_sources(repo: str, skipped: dict):
             yield path
 
 
-def _copy_sources(repo: str, destination: str) -> tuple[list[dict], dict]:
+def _copy_sources(repo: str, destination: str, progress=None) -> tuple[list[dict], dict]:
     """Reescreve a árvore de fontes no workspace, removendo arquivos obsoletos."""
     if os.path.isdir(destination):
         shutil.rmtree(destination)
@@ -88,18 +89,29 @@ def _copy_sources(repo: str, destination: str) -> tuple[list[dict], dict]:
         "unsupported": {},
     }
 
-    for path in _iter_sources(repo, skipped):
+    sources = list(_iter_sources(repo, skipped))
+    if progress is not None:
+        progress.total = len(sources)
+        progress.start(f"{len(sources)} fonte(s) para copiar para o workspace")
+
+    total_bytes = 0
+    for index, path in enumerate(sources, 1):
         relative = os.path.relpath(path, repo).replace("\\", "/")
         target = os.path.join(destination, relative)
         ensure_dir(os.path.dirname(target))
         shutil.copy2(path, target)
+        size = os.path.getsize(target)
+        total_bytes += size
         copied.append(
             {
                 "source": relative,
                 "workspace_path": os.path.relpath(target, destination).replace("\\", "/"),
-                "size": os.path.getsize(target),
+                "size": size,
             }
         )
+        if progress is not None:
+            progress.bytes_read = total_bytes
+            progress.update(index, len(sources), note=f"{len(copied)} copiado(s)")
 
     return copied, skipped
 
@@ -160,7 +172,9 @@ def handle(ctx, params):
     code_dir = ensure_dir(os.path.join(workspace(ctx), "knowledge", "code"))
     source_dir = os.path.join(code_dir, "src")
 
-    copied, skipped = _copy_sources(repo, source_dir)
+    progress = for_context(ctx, "code:preprocess")
+    copied, skipped = _copy_sources(repo, source_dir, progress=progress)
+    progress.finish(f"{len(copied)} fonte(s) copiada(s)")
 
     notes: list[str] = []
     graph_ok = False

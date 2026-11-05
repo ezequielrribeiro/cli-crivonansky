@@ -1,7 +1,7 @@
 import json
 
 from commands.complements.harness.tasks import preprocess
-from commands.complements.harness.types import TaskContext, TaskResult
+from commands.complements.harness.task_types import TaskContext, TaskResult
 
 
 def _context(tmp_path):

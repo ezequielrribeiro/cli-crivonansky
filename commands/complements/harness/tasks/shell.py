@@ -6,7 +6,7 @@ import sys
 from ..catalog import register
 from ..config import get_tool_path
 from ..runner import run_process
-from ..types import TaskResult, TaskSpec
+from ..task_types import TaskResult, TaskSpec
 from ..util import ensure_allowed, legacy_repo
 
 

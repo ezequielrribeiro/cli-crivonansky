@@ -1,6 +1,6 @@
 from commands.complements.harness.runner import ProcessResult
 from commands.complements.harness.tasks import code
-from commands.complements.harness.types import TaskContext
+from commands.complements.harness.task_types import TaskContext
 
 
 def test_extract_runs_outside_repo_and_pins_codegraph_out(tmp_path, monkeypatch):

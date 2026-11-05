@@ -1,6 +1,6 @@
 """Catálogo fechado de tarefas do harness."""
 
-from .types import TaskSpec
+from .task_types import TaskSpec
 
 _TASKS: dict[str, TaskSpec] = {}
 _loaded = False

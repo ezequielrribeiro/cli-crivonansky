@@ -4,7 +4,7 @@ import os
 
 from ..catalog import get_task, register
 from ..runner import run_process
-from ..types import TaskResult, TaskSpec
+from ..task_types import TaskResult, TaskSpec
 from ..util import ensure_dir, legacy_repo, write_text
 
 

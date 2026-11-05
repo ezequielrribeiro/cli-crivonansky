@@ -3,7 +3,7 @@
 import os
 
 from ..catalog import register
-from ..types import TaskResult, TaskSpec
+from ..task_types import TaskResult, TaskSpec
 from ..util import as_int, as_list, ensure_allowed, read_text
 
 

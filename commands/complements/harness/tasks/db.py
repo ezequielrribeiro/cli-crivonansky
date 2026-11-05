@@ -10,7 +10,7 @@ from sqlglot import exp
 from ..catalog import register
 from ..config import get_legacy, get_legacy_path
 from ..runner import run_process
-from ..types import TaskResult, TaskSpec
+from ..task_types import TaskResult, TaskSpec
 from ..util import (
     as_int,
     ensure_dir,

@@ -1,7 +1,7 @@
 """Tarefas de pipeline: test:run, verify e lint."""
 
 from ..catalog import get_task, register
-from ..types import TaskResult, TaskSpec
+from ..task_types import TaskResult, TaskSpec
 
 
 def _run_pipeline(ctx, name: str, params: dict) -> TaskResult:

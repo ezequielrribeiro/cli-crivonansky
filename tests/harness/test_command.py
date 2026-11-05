@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 
 from commands.harness import HarnessCommand
-from commands.complements.harness.types import TaskResult
+from commands.complements.harness.task_types import TaskResult
 
 
 def test_help_lists_lifecycle_and_contract_subcommands():

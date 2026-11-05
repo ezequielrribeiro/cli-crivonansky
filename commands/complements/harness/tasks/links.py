@@ -14,20 +14,26 @@ import json
 import os
 import re
 import shutil
+from bisect import bisect_right
+from functools import lru_cache
 
 import sqlglot
 from sqlglot import exp
 
 from ..catalog import register
-from ..types import TaskResult, TaskSpec
-from ..util import legacy_repo, read_text, workspace, write_json, write_text
+from ..progress import for_context, format_duration
+from ..task_types import TaskResult, TaskSpec
+from ..util import as_int, legacy_repo, read_text, workspace, write_json, write_text
 
 SKIP_DIRS = {
     ".git",
+    ".hg",
+    ".svn",
     "vendor",
     "node_modules",
     ".venv",
     "venv",
+    "site-packages",
     "__pycache__",
     "dist",
     "build",
@@ -36,6 +42,18 @@ SKIP_DIRS = {
 }
 
 EXTENSIONS = {".php", ".js", ".ts", ".jsx", ".tsx"}
+
+# Bundles/minificados não têm SQL escrito à mão; ignorá-los evita gastar
+# minutos de regex e parsing em um único arquivo gerado.
+ARTIFACT_RE = re.compile(r"\.(?:min|bundle|pack)\.js$", re.I)
+
+# Acima disso o sqlglot pode demorar demais em uma única instrução; nesse caso
+# caímos na análise heurística (que continua extraindo as tabelas).
+MAX_SQL_CHARS = 32000
+
+# Arquivos maiores que isso não entram na resolução de símbolos (o grafo do
+# codeknow já os indexa; aqui só precisamos mapear linha → função).
+MAX_SYMBOL_FILE_BYTES = 2 * 1024 * 1024
 
 STRING_RE = re.compile(r"""(['"])((?:\\.|(?!\1).)*)\1""", re.S)
 SQL_KEYWORDS = re.compile(r"\b(SELECT|INSERT\s+INTO|UPDATE|DELETE|REPLACE\s+INTO)\b", re.I)
@@ -70,12 +88,51 @@ _TABLE_REF_RE = re.compile(
 # ---------------------------------------------------------------------------
 # Helpers de arquivo
 # ---------------------------------------------------------------------------
-def _iter_files(root: str):
+def _iter_files(root: str, skipped: dict | None = None, max_bytes: int = 0):
+    """Percorre as fontes analisáveis, acumulando estatísticas em ``skipped``."""
+    skipped = skipped if skipped is not None else {}
+
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d.lower() not in SKIP_DIRS]
-        for filename in filenames:
-            if os.path.splitext(filename)[1].lower() in EXTENSIONS:
-                yield os.path.join(dirpath, filename)
+        dirnames[:] = sorted(d for d in dirnames if d.lower() not in SKIP_DIRS)
+        for filename in sorted(filenames):
+            extension = os.path.splitext(filename)[1].lower()
+            if extension not in EXTENSIONS:
+                continue
+            if ARTIFACT_RE.search(filename):
+                skipped["build_artifacts"] = skipped.get("build_artifacts", 0) + 1
+                continue
+
+            path = os.path.join(dirpath, filename)
+            if max_bytes:
+                try:
+                    if os.path.getsize(path) > max_bytes:
+                        skipped["large_files"] = skipped.get("large_files", 0) + 1
+                        continue
+                except OSError:
+                    continue
+            yield path
+
+
+class LineIndex:
+    """Converte offsets em números de linha em O(log n).
+
+    ``text.count("\\n", 0, index)`` é O(n) por chamada; em arquivos grandes com
+    muitos candidatos isso dominava o tempo da tarefa.
+    """
+
+    __slots__ = ("starts",)
+
+    def __init__(self, text: str):
+        starts = [0]
+        find = text.find
+        index = find("\n")
+        while index != -1:
+            starts.append(index + 1)
+            index = find("\n", index + 1)
+        self.starts = starts
+
+    def line(self, offset: int) -> int:
+        return bisect_right(self.starts, offset)
 
 
 def _line_of(text: str, index: int) -> int:
@@ -144,8 +201,9 @@ def _overlaps(span: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
     return any(start < other_end and end > other_start for other_start, other_end in spans)
 
 
-def _iter_sql(text: str):
+def _iter_sql(text: str, index: LineIndex | None = None):
     """Devolve (linha, sql) dos candidatos, sem duplicar literais consumidos."""
+    index = index or LineIndex(text)
     constants = _constant_strings(text)
     consumed: list[tuple[int, int]] = []
     candidates: list[tuple[int, str]] = []
@@ -154,7 +212,7 @@ def _iter_sql(text: str):
         consumed.append(match.span())
         sql = _expand_vars(match.group(3), constants)
         if SQL_KEYWORDS.search(sql):
-            candidates.append((_line_of(text, match.start()), sql))
+            candidates.append((index.line(match.start()), sql))
 
     for match in CONCAT_RE.finditer(text):
         if _overlaps(match.span(), consumed):
@@ -163,16 +221,34 @@ def _iter_sql(text: str):
         parts = PART_RE.findall(match.group(0))
         sql = "".join(_part_value(part, constants) for part in parts)
         if SQL_KEYWORDS.search(sql):
-            candidates.append((_line_of(text, match.start()), sql))
+            candidates.append((index.line(match.start()), sql))
 
+    # Os spans já consumidos são mesclados uma única vez: a checagem por
+    # literal de string passa a ser um ponteiro linear (antes era O(n²)).
+    blocked = _merge_spans(consumed)
+    pointer = 0
     for match in STRING_RE.finditer(text):
-        if _overlaps(match.span(), consumed):
+        start, end = match.span()
+        while pointer < len(blocked) and blocked[pointer][1] <= start:
+            pointer += 1
+        if pointer < len(blocked) and blocked[pointer][0] < end:
             continue
+
         sql = _expand_vars(match.group(2), constants)
         if SQL_KEYWORDS.search(sql):
-            candidates.append((_line_of(text, match.start()), sql))
+            candidates.append((index.line(start), sql))
 
     return sorted(candidates, key=lambda item: item[0])
+
+
+def _merge_spans(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -258,12 +334,22 @@ def _analyze_heuristic(sql: str) -> set[tuple[str, str, str]]:
     return entries
 
 
-def _analyze_sql(sql: str) -> tuple[list[tuple[str, str, str]], str]:
-    """Devolve (entradas, confiança), com confiança parsed | heuristic."""
+@lru_cache(maxsize=1024)
+def _parse_cached(sql: str):
+    """Parse do sqlglot memoizado: o mesmo SQL costuma se repetir no legado."""
+    if len(sql) > MAX_SQL_CHARS:
+        return None
     try:
-        statements = sqlglot.parse(sql, read="mysql")
+        return tuple(sqlglot.parse(sql, read="mysql"))
     except Exception:  # noqa: BLE001
-        return sorted(_analyze_heuristic(sql)), "heuristic"
+        return None
+
+
+def _analyze_sql(sql: str) -> tuple[list[tuple[str, str, str]], str, tuple | None]:
+    """Devolve (entradas, confiança, statements), com confiança parsed | heuristic."""
+    statements = _parse_cached(sql)
+    if statements is None:
+        return sorted(_analyze_heuristic(sql)), "heuristic", None
 
     entries: set[tuple[str, str, str]] = set()
     confidence = "parsed"
@@ -294,7 +380,7 @@ def _analyze_sql(sql: str) -> tuple[list[tuple[str, str, str]], str]:
         if entries:
             confidence = "heuristic"
 
-    return sorted(entries), confidence
+    return sorted(entries), confidence, statements
 
 
 # ---------------------------------------------------------------------------
@@ -312,10 +398,8 @@ def _suffix(name: str) -> str:
     return ""
 
 
-def _infer_fks(sql: str, pk_map: dict[str, set[str]]) -> list[dict]:
-    try:
-        statements = sqlglot.parse(sql, read="mysql")
-    except Exception:  # noqa: BLE001
+def _infer_fks(statements, pk_map: dict[str, set[str]]) -> list[dict]:
+    if not statements:
         return []
 
     suggestions = []
@@ -381,16 +465,23 @@ def _graph_path(ctx) -> str | None:
     return None
 
 
-def _brace_block_end(text: str, start_line: int) -> int | None:
+def _brace_block_end(
+    text: str, start_line: int, line_starts: list[int] | None = None
+) -> int | None:
     if start_line < 1:
         return None
 
-    offset = 0
-    for _ in range(start_line - 1):
-        newline = text.find("\n", offset)
-        if newline == -1:
+    if line_starts is not None:
+        if start_line > len(line_starts):
             return None
-        offset = newline + 1
+        offset = line_starts[start_line - 1]
+    else:
+        offset = 0
+        for _ in range(start_line - 1):
+            newline = text.find("\n", offset)
+            if newline == -1:
+                return None
+            offset = newline + 1
 
     state = "code"
     depth = 0
@@ -449,11 +540,12 @@ def _brace_block_end(text: str, start_line: int) -> int | None:
     return None
 
 
-def _python_block_end(text: str, start_line: int) -> int | None:
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return None
+def _python_block_end(text: str, start_line: int, tree=None) -> int | None:
+    if tree is None:
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return None
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -462,12 +554,18 @@ def _python_block_end(text: str, start_line: int) -> int | None:
     return None
 
 
-def _block_end(rel: str, start: int, text: str | None) -> int | None:
+def _block_end(
+    rel: str,
+    start: int,
+    text: str | None,
+    line_starts: list[int] | None = None,
+    tree=None,
+) -> int | None:
     if text is None:
         return None
     if rel.lower().endswith(".py"):
-        return _python_block_end(text, start)
-    return _brace_block_end(text, start)
+        return _python_block_end(text, start, tree)
+    return _brace_block_end(text, start, line_starts)
 
 
 def _load_symbols(ctx, repo: str) -> dict[str, list[tuple[int, int, str]]]:
@@ -486,6 +584,8 @@ def _load_symbols(ctx, repo: str) -> dict[str, list[tuple[int, int, str]]]:
         return {}
 
     sources: dict[str, str | None] = {}
+    line_starts: dict[str, list[int]] = {}
+    trees: dict[str, object] = {}
     ranges: dict[str, list[tuple[int, int, str]]] = {}
 
     for node in nodes:
@@ -503,14 +603,33 @@ def _load_symbols(ctx, repo: str) -> dict[str, list[tuple[int, int, str]]]:
         start = numbers[0]
 
         if rel not in sources:
+            path = os.path.join(repo, rel)
             try:
-                with open(os.path.join(repo, rel), "r", encoding="utf-8", errors="replace") as fh:
-                    sources[rel] = fh.read()
+                if os.path.getsize(path) > MAX_SYMBOL_FILE_BYTES:
+                    sources[rel] = None
+                else:
+                    sources[rel] = read_text(path)
             except OSError:
                 sources[rel] = None
+            if sources[rel] is not None:
+                line_starts[rel] = LineIndex(sources[rel]).starts
+                if rel.lower().endswith(".py"):
+                    try:
+                        trees[rel] = ast.parse(sources[rel])
+                    except SyntaxError:
+                        trees[rel] = None
 
-        end = _block_end(rel, start, sources[rel])
+        end = _block_end(
+            rel,
+            start,
+            sources[rel],
+            line_starts.get(rel),
+            trees.get(rel),
+        )
         ranges.setdefault(rel, []).append((start, end or start, str(label)))
+
+    for items in ranges.values():
+        items.sort(key=lambda item: item[0])
 
     return ranges
 
@@ -518,11 +637,14 @@ def _load_symbols(ctx, repo: str) -> dict[str, list[tuple[int, int, str]]]:
 def _resolve_symbol(
     ranges: dict[str, list[tuple[int, int, str]]], rel: str, line: int
 ) -> str | None:
-    best: tuple[int, str] | None = None
-    for start, end, label in ranges.get(rel, ()):
-        if start <= line <= end and (best is None or start >= best[0]):
-            best = (start, label)
-    return best[1] if best else None
+    # Os intervalos estão ordenados por início: percorrendo de trás para frente,
+    # o primeiro que contém a linha é o símbolo mais interno (o mais específico).
+    for start, end, label in reversed(ranges.get(rel, ())):
+        if start > line:
+            continue
+        if line <= end:
+            return label
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -663,19 +785,33 @@ def handle(ctx, params):
 
     only_file = params.get("file")
     only_table = params.get("table")
+    max_file_mb = as_int(params.get("max_file_mb"), 0)
+    max_bytes = max_file_mb * 1024 * 1024
+
     pk_map = _load_pk_map(ctx)
     symbols = _load_symbols(ctx, root)
+
+    skipped: dict = {}
+    files = list(_iter_files(root, skipped, max_bytes=max_bytes))
+    if only_file:
+        wanted = str(only_file).replace("\\", "/")
+        files = [path for path in files if os.path.relpath(path, root).replace("\\", "/") == wanted]
+
+    progress = for_context(ctx, "db:links", total=len(files))
+    progress.start(f"{len(files)} arquivo(s) para analisar em {root}")
 
     links = []
     includes = []
     fk_suggestions: dict[tuple[str, tuple[str, ...]], dict] = {}
+    bytes_read = 0
 
-    for path in _iter_files(root):
+    for index, path in enumerate(files, 1):
         rel = os.path.relpath(path, root).replace("\\", "/")
-        if only_file and rel != str(only_file).replace("\\", "/"):
-            continue
 
         text = read_text(path)
+        bytes_read += len(text)
+        progress.bytes_read = bytes_read
+        index_lines = LineIndex(text)
 
         for match in INCLUDE_RE.finditer(text):
             expression = match.group(2).strip()
@@ -683,54 +819,57 @@ def handle(ctx, params):
             includes.append(
                 {
                     "file": rel,
-                    "line": _line_of(text, match.start()),
+                    "line": index_lines.line(match.start()),
                     "type": match.group(1).lower(),
                     "target": quoted.group(1) if quoted else expression,
                 }
             )
 
-        for line, sql in _iter_sql(text):
-            entries, confidence = _analyze_sql(sql)
-            symbol = _resolve_symbol(symbols, rel, line)
+        if SQL_KEYWORDS.search(text):
+            for line, sql in _iter_sql(text, index_lines):
+                entries, confidence, statements = _analyze_sql(sql)
+                symbol = _resolve_symbol(symbols, rel, line)
 
-            for table, operation, kind in entries:
-                if not _valid_table(table):
-                    continue
-                if only_table and table != only_table:
-                    continue
-                links.append(
-                    {
-                        "file": rel,
-                        "line": line,
-                        "symbol": symbol,
-                        "table": table,
-                        "operation": operation,
-                        "statement_kind": kind,
-                        "confidence": confidence,
-                        "snippet": sql.strip()[:200],
-                    }
-                )
+                for table, operation, kind in entries:
+                    if not _valid_table(table):
+                        continue
+                    if only_table and table != only_table:
+                        continue
+                    links.append(
+                        {
+                            "file": rel,
+                            "line": line,
+                            "symbol": symbol,
+                            "table": table,
+                            "operation": operation,
+                            "statement_kind": kind,
+                            "confidence": confidence,
+                            "snippet": sql.strip()[:200],
+                        }
+                    )
 
-            for suggestion in _infer_fks(sql, pk_map):
-                if not _valid_table(suggestion["table"]):
-                    continue
-                if only_table and suggestion["table"] != only_table:
-                    continue
-                key = (suggestion["table"], tuple(suggestion["columns"]))
-                entry = fk_suggestions.setdefault(
-                    key,
-                    {
-                        "table": suggestion["table"],
-                        "columns": suggestion["columns"],
-                        "ref_table": suggestion["ref_table"],
-                        "ref_columns": suggestion["ref_columns"],
-                        "origin": "inferred",
-                        "evidence": [],
-                    },
-                )
-                evidence = f"{rel}:{line}"
-                if evidence not in entry["evidence"]:
-                    entry["evidence"].append(evidence)
+                for suggestion in _infer_fks(statements, pk_map):
+                    if not _valid_table(suggestion["table"]):
+                        continue
+                    if only_table and suggestion["table"] != only_table:
+                        continue
+                    key = (suggestion["table"], tuple(suggestion["columns"]))
+                    entry = fk_suggestions.setdefault(
+                        key,
+                        {
+                            "table": suggestion["table"],
+                            "columns": suggestion["columns"],
+                            "ref_table": suggestion["ref_table"],
+                            "ref_columns": suggestion["ref_columns"],
+                            "origin": "inferred",
+                            "evidence": [],
+                        },
+                    )
+                    evidence = f"{rel}:{line}"
+                    if evidence not in entry["evidence"]:
+                        entry["evidence"].append(evidence)
+
+        progress.update(index, len(files), note=f"{len(links)} vínculo(s)")
 
     fks = sorted(fk_suggestions.values(), key=lambda item: (item["table"], item["columns"]))
 
@@ -748,22 +887,42 @@ def handle(ctx, params):
         shutil.rmtree(tables_dir)
     os.makedirs(tables_dir, exist_ok=True)
 
-    tables = sorted({link["table"] for link in links})
-    for table in tables:
-        table_links = [link for link in links if link["table"] == table]
-        table_fks = [fk for fk in fks if fk["table"] == table or fk["ref_table"] == table]
+    # Uma única passada agrupa os vínculos por tabela (antes era O(tabelas × vínculos)).
+    links_by_table: dict[str, list[dict]] = {}
+    for link in links:
+        links_by_table.setdefault(link["table"], []).append(link)
+
+    fks_by_table: dict[str, list[dict]] = {}
+    for fk in fks:
+        fks_by_table.setdefault(fk["table"], []).append(fk)
+        if fk["ref_table"] != fk["table"]:
+            fks_by_table.setdefault(fk["ref_table"], []).append(fk)
+
+    for table in sorted(links_by_table):
         write_text(
             os.path.join(tables_dir, f"{_safe_filename(table)}.md"),
-            _table_markdown(table, table_links, table_fks),
+            _table_markdown(table, links_by_table[table], fks_by_table.get(table, [])),
         )
+
+    elapsed = progress.elapsed()
+    progress.finish(
+        f"{len(links)} vínculo(s), {len(fks)} FK(s), {len(includes)} include/require"
+    )
 
     summary = (
         f"{len(links)} vínculo(s) código↔tabela, {len(fks)} FK(s) inferida(s), "
-        f"{len(includes)} include/require"
+        f"{len(includes)} include/require em {len(files)} arquivo(s) "
+        f"({format_duration(elapsed)})"
     )
+    notes = []
+    if skipped.get("build_artifacts"):
+        notes.append(f"{skipped['build_artifacts']} bundle(s) minificado(s) ignorado(s)")
+    if skipped.get("large_files"):
+        notes.append(f"{skipped['large_files']} arquivo(s) acima de {max_file_mb} MB ignorado(s)")
     return TaskResult(
         True,
         summary,
+        details="\n".join(notes),
         artifacts=[
             os.path.join(out_dir, "code-db-links.json"),
             os.path.join(out_dir, "includes.json"),
@@ -779,7 +938,7 @@ register(
         intent="read",
         description="Extrai SQL embutido em PHP/JS e vínculos com tabelas",
         required=[],
-        optional=["file", "table"],
+        optional=["file", "table", "max_file_mb"],
         handler=handle,
     )
 )

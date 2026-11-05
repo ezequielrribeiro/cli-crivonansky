@@ -1,6 +1,6 @@
 from commands.complements.harness.contract import CommandBlock
 from commands.complements.harness.policy import check_policy
-from commands.complements.harness.types import TaskSpec
+from commands.complements.harness.task_types import TaskSpec
 
 
 def _spec(intent="read"):

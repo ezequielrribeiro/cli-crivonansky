@@ -11,7 +11,7 @@ class HarnessCommand(Command):
     name = "harness"
     description = "Executa o harness de desenvolvimento assistido"
     help_text = """Uso:
-  /harness install [--force] [--skip-docker] [--check-only]
+  /harness install [--force] [--skip-docker] [--check-only] [--python CAMINHO]
   /harness start [--no-rag] [--no-docker]
   /harness stop [--purge]
   /harness prepare [--full] [--no-rag]
@@ -52,6 +52,7 @@ class HarnessCommand(Command):
                     force="--force" in rest,
                     skip_docker="--skip-docker" in rest,
                     check_only="--check-only" in rest or "--check" in rest,
+                    python_exe=self._install_python(rest),
                 )
             )
         if sub == "config":
@@ -138,6 +139,15 @@ class HarnessCommand(Command):
 
         load_tasks()
 
+    def _install_python(self, args: list[str]) -> str | None:
+        """Extrai --python CAMINHO (ou --python=CAMINHO) do install."""
+        for index, item in enumerate(args):
+            if item == "--python" and index + 1 < len(args):
+                return args[index + 1]
+            if item.startswith("--python="):
+                return item.split("=", 1)[1]
+        return None
+
     def _op(self, result):
         if result.summary:
             print(result.summary)
@@ -219,7 +229,7 @@ class HarnessCommand(Command):
     def _ask(self, config_path, args):
         from .complements.harness.catalog import get_task
         from .complements.harness.engine import HarnessEngine
-        from .complements.harness.types import TaskContext
+        from .complements.harness.task_types import TaskContext
 
         context = "rag,code"
         question_parts = []

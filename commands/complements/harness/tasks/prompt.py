@@ -1,7 +1,7 @@
 """Tarefa prompt: copia o prompt de instrução do LLM."""
 
 from ..catalog import register
-from ..types import TaskResult, TaskSpec
+from ..task_types import TaskResult, TaskSpec
 
 PROMPT = """Você está conectado a um harness local de desenvolvimento de um sistema legado (PHP, MySQL, JS).
 Você NÃO tem acesso direto a arquivos, terminal ou banco de dados.

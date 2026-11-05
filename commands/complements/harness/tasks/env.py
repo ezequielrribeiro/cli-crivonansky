@@ -5,7 +5,7 @@ import urllib.request
 from ..catalog import register
 from ..config import get_tool, get_tool_path
 from ..runner import run_process
-from ..types import TaskResult, TaskSpec
+from ..task_types import TaskResult, TaskSpec
 
 
 def _http_ok(url: str, timeout: float = 3) -> tuple[bool, str]:

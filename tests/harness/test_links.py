@@ -1,7 +1,7 @@
 import json
 
 from commands.complements.harness.tasks import links
-from commands.complements.harness.types import TaskContext
+from commands.complements.harness.task_types import TaskContext
 
 
 def _context(tmp_path, extra_files=None, graph=None):
@@ -289,3 +289,97 @@ def test_removes_stale_table_views(tmp_path):
     links.handle(ctx, {})
 
     assert not stale.exists()
+
+
+# ---------------------------------------------------------------------------
+# Progresso e desempenho
+# ---------------------------------------------------------------------------
+def test_db_links_writes_progress_log(tmp_path, monkeypatch):
+    monkeypatch.setenv("HARNESS_PROGRESS", "log")
+    ctx = _context(tmp_path)
+
+    links.handle(ctx, {})
+
+    log = tmp_path / "run" / "progress.log"
+    assert log.is_file()
+    text = log.read_text(encoding="utf-8")
+    assert "db:links" in text
+    assert "concluído" in text
+
+
+def test_summary_reports_files_and_duration(tmp_path):
+    ctx = _context(tmp_path)
+    result = links.handle(ctx, {})
+
+    assert "arquivo(s)" in result.summary
+    assert result.details == ""
+
+
+def test_duplicate_sql_is_parsed_once(tmp_path):
+    links._parse_cached.cache_clear()
+    sql = "SELECT * FROM tb_repetida WHERE id = 1"
+    files = {
+        f"dup_{index}.php": f"<?php\n$sql = \"{sql}\";\n" for index in range(5)
+    }
+    ctx = _context(tmp_path, files)
+
+    links.handle(ctx, {})
+
+    assert links._parse_cached.cache_info().hits >= 4
+    assert any(item["table"] == "tb_repetida" for item in _links(tmp_path))
+
+
+def test_minified_bundles_are_ignored(tmp_path):
+    ctx = _context(
+        tmp_path,
+        {"assets/app.min.js": 'var q = "SELECT * FROM tb_minificada";'},
+    )
+
+    result = links.handle(ctx, {})
+
+    assert "tb_minificada" not in {item["table"] for item in _links(tmp_path)}
+    assert "minificado" in result.details
+
+
+def test_max_file_mb_skips_large_files(tmp_path):
+    ctx = _context(
+        tmp_path,
+        {"grande.php": '<?php\n$sql = "SELECT * FROM tb_grande";\n' + "// x\n" * 300000},
+    )
+
+    result = links.handle(ctx, {"max_file_mb": "0"})
+    assert any(item["table"] == "tb_grande" for item in _links(tmp_path))
+    assert result.details == ""
+
+    result = links.handle(ctx, {"max_file_mb": "1"})
+    assert "tb_grande" not in {item["table"] for item in _links(tmp_path)}
+    assert "acima de 1 MB" in result.details
+
+
+def test_line_index_matches_naive_count():
+    text = "a\nbb\n\nccc\nd"
+    index = links.LineIndex(text)
+    for offset in range(len(text) + 1):
+        assert index.line(offset) == text.count("\n", 0, offset) + 1
+
+
+def test_merge_spans_combines_overlaps():
+    assert links._merge_spans([(5, 10), (0, 3), (2, 6)]) == [(0, 10)]
+
+
+def test_concatenated_literal_is_not_reported_twice(tmp_path):
+    ctx = _context(
+        tmp_path,
+        {
+            "concat_dup.php": (
+                "<?php\n"
+                "$tabela = 'tb_unica';\n"
+                '$sql = "SELECT * FROM " . $tabela . " WHERE id = 1";\n'
+            )
+        },
+    )
+
+    links.handle(ctx, {})
+
+    entries = _by_table(_links(tmp_path), "tb_unica")
+    assert len(entries) == 1

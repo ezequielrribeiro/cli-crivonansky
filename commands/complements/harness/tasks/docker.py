@@ -2,7 +2,7 @@
 
 from ..catalog import register
 from ..runner import run_process
-from ..types import TaskResult, TaskSpec
+from ..task_types import TaskResult, TaskSpec
 from ..util import as_int
 
 READ_ONLY_PREFIXES = (

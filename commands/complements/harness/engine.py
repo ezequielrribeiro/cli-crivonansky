@@ -10,7 +10,7 @@ from .formatter import format_result, mask_secrets
 from .policy import check_policy
 from .runs import RunStore
 from .sinks import emit
-from .types import TaskContext
+from .task_types import TaskContext
 
 
 class HarnessEngine:

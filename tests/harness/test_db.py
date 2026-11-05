@@ -1,7 +1,7 @@
 import json
 
 from commands.complements.harness.tasks import db
-from commands.complements.harness.types import TaskContext
+from commands.complements.harness.task_types import TaskContext
 
 
 def test_db_query_rejects_update():

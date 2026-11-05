@@ -6,7 +6,7 @@ import shutil
 
 from ..catalog import register
 from ..config import get_legacy, get_legacy_path
-from ..types import TaskResult, TaskSpec
+from ..task_types import TaskResult, TaskSpec
 from ..util import ensure_dir, workspace, write_json, write_text
 
 MANUAL_EXTENSIONS = {".pdf", ".md", ".txt"}

@@ -1,3 +1,4 @@
+from textual import work
 from textual.app import App, ComposeResult
 from textual.widgets import Input, RichLog, Label, ListView, ListItem
 from textual.containers import Container
@@ -249,13 +250,50 @@ class MyCLIApp(App):
 
         self.output.write(f"[cyan]> {command}[/cyan]")
 
-        # executa
-        result = self.executor.execute(command)
+        # executa em um worker: comandos longos (harness prepare, db:links)
+        # não travam a interface e o progresso aparece em tempo real.
+        self.input.value = ""
+        self._set_status(f"executando: {command}")
+        self._run_command(command)
 
+    @work(thread=True, exclusive=True)
+    def _run_command(self, command: str) -> None:
+        sink = None
+        try:
+            from commands.complements.harness import progress as harness_progress
+
+            sink = harness_progress
+            sink.set_sink(self._write_progress)
+        except Exception:  # noqa: BLE001 - o harness pode não estar instalado
+            sink = None
+
+        try:
+            result = self.executor.execute(command)
+        finally:
+            if sink is not None:
+                sink.clear_sink(self._write_progress)
+
+        try:
+            self.call_from_thread(self._finish_command, command, result)
+        except Exception:  # noqa: BLE001 - app encerrando
+            pass
+
+    def _write_progress(self, line: str) -> None:
+        """Chamado do worker thread pelo módulo de progresso do harness."""
+        try:
+            self.call_from_thread(self.output.write, f"[dim]{line}[/dim]")
+        except Exception:  # noqa: BLE001 - app encerrando
+            pass
+
+    def _finish_command(self, command: str, result: str) -> None:
         if result:
             self.output.write(result)
+        self._set_status("/help • /clear • /quit")
 
-        # limpa input
-        self.input.value = ""
+    def _set_status(self, text: str) -> None:
+        try:
+            self.query_one("#status-text", Label).update(text)
+        except Exception:  # noqa: BLE001
+            pass
 
 

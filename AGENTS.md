@@ -50,6 +50,8 @@ own `.venv/`, `vendor/` (clones of `local-rag-system` and `codeknow`), `workspac
 | `commands/complements/harness/bootstrap.py` | Adds the plugin `.venv` site-packages to `sys.path` when the host venv lacks PyYAML/pyperclip/sqlglot |
 | `commands/complements/harness/config.py` | Loads `harness.yaml` (precedence: `--config` → `HARNESS_CONFIG` → `workspace/harness.yaml`) and resolves relative paths |
 | `commands/complements/harness/engine.py`, `contract.py`, `policy.py`, `formatter.py`, `sinks.py`, `runs.py` | Contract execution, policy, result envelope, sinks and run history |
+| `commands/complements/harness/task_types.py` | `TaskResult`/`TaskContext`/`TaskSpec` (nunca nomear de `types.py`) |
+| `commands/complements/harness/progress.py` | Progresso ao vivo das tarefas longas (sink da TUI, stderr, log) |
 | `commands/complements/harness/tasks/` | Task catalog (`db:*`, `code:*`, `rag:*`, `docs:import`, `git:run`, `shell:run`, `docker:exec`, etc.) |
 
 Lifecycle subcommands:
@@ -81,6 +83,14 @@ Notes:
   `/harness install` works on a bare host venv. Keep heavy imports inside methods.
 - Do not add harness runtime deps (PyYAML, pyperclip, sqlglot) to the root
   `requirements.txt`; they belong to `commands/complements/harness/requirements.txt`.
+- **Never name a harness module after a stdlib module.** The plugin had a `types.py`
+  that shadowed the stdlib `types` whenever the harness folder landed on `sys.path`
+  (pip/venv subprocesses, running from the folder) and broke installs; it is now
+  `task_types.py`. `tests/harness/test_package_layout.py` guards this.
+- Long tasks (`db:links`, `code:preprocess`, `install`) report progress through
+  `harness/progress.py` (sink for the TUI, `stderr` on the CLI, `<run_dir>/progress.log`);
+  `HARNESS_PROGRESS=off|log|stderr|auto` controls the channel. The TUI runs commands in a
+  worker so it stays responsive.
 - `run.ps1` forwards `@args` to `crivonansky.py`, so `.\run.ps1 harness ...` works.
 - Harness tests: `python -m pytest tests/harness -q` (host venv or the plugin `.venv`).
 - Full reference: `commands/complements/harness/README.md`.

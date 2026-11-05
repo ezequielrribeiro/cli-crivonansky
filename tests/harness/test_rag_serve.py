@@ -1,5 +1,5 @@
 from commands.complements.harness.tasks import rag_serve
-from commands.complements.harness.types import TaskContext
+from commands.complements.harness.task_types import TaskContext
 
 
 def _context(tmp_path):

@@ -27,6 +27,12 @@ plugin e o venv do RAG, e gera `workspace/harness.yaml` com caminhos absolutos.
 O pacote `bootstrap.py` adiciona o site-packages do plugin ao `sys.path` do
 crivonansky quando o venv do host não tem as dependências.
 
+> **Módulos do plugin não podem ter nome de módulo da stdlib.** O plugin já teve um
+> `types.py`, que sombreava o `types` da biblioteca padrão quando a pasta do harness
+> entrava no `sys.path` (subprocessos do pip, execução a partir da pasta) e quebrava
+> a instalação. O arquivo hoje é `task_types.py` e
+> `tests/harness/test_package_layout.py` impede a reincidência.
+
 ## Instalação
 
 O plugin é instalado por `/harness install` (TUI) ou pelo comando equivalente:
@@ -44,8 +50,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 
 ### O que o `install` faz
 
-1. valida Python 3.13+, Git e Docker (este último é opcional com `--skip-docker`);
-2. confere `requirements.txt` e a fixture;
+1. localiza o Python 3.13+ (ver abaixo) e valida Git e Docker (este último é opcional
+   com `--skip-docker`);
+2. confere `requirements.txt` e a fixture e testa a escrita em `vendor/` e `workspace/`;
 3. clona/atualiza `local-rag-system` e `codeknow` em `vendor/`;
 4. cria `commands/complements/harness/.venv` e instala `requirements.txt`;
 5. instala `codeknow` em modo editável nesse venv;
@@ -54,14 +61,34 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 7. gera `workspace/harness.yaml` a partir de `harness.example.yaml`, substituindo o
    marcador de raiz do plugin pelo caminho absoluto.
 
-O comando é idempotente: rodar de novo atualiza os clones e revalida as dependências.
-Ele **não** sobe contêiner nem inicia a API do RAG.
+O comando é idempotente e **retomável**: cada etapa que toca o disco tem retry (3
+tentativas), venv pela metade e clone interrompido são detectados e refeitos, e o
+stderr de `git`/`pip` não aborta mais o script (gotcha do PowerShell 5.1 com
+`$ErrorActionPreference = "Stop"`). Rodar de novo após uma falha retoma do ponto
+problemático. Ele **não** sobe contêiner nem inicia a API do RAG.
+
+### Descoberta do Python
+
+O instalador procura, nesta ordem: `-PythonExe`, `HARNESS_PYTHON`, `py -0p`,
+`C:\Python3*`, `%LOCALAPPDATA%\Programs\Python`, `%LOCALAPPDATA%\Python`, o registro
+(`HKLM`/`HKCU\SOFTWARE\Python\PythonCore`) e o `PATH` (ignorando o atalho da Microsoft
+Store). Se houver um 3.13 ele é preferido, porque é a versão em que as dependências do
+RAG (`torch`/`sentence-transformers`) são validadas; 3.14+ funciona, mas pode não ter
+wheel para alguma dependência — nesse caso o próprio instalador avisa.
+
+Se a detecção falhar, informe o caminho:
+
+```powershell
+python crivonansky.py harness install --python C:\Python313\python.exe
+# ou: setx HARNESS_PYTHON C:\Python313\python.exe
+```
 
 | Flag | Efeito |
 |---|---|
-| `--check-only` | Só valida pré-requisitos e mostra os caminhos; não instala |
+| `--check-only` | Só valida pré-requisitos, caminhos e permissão de escrita; não instala |
 | `--skip-docker` | Permite instalar em máquina sem Docker |
 | `--force` | Regenera `workspace/harness.yaml` mesmo se já existir |
+| `--python CAMINHO` | Força o interpretador (3.13+) usado nos venvs |
 
 Para reinstalar dependências do zero, remova `vendor/` e/ou `.venv/` e rode
 `/harness install` novamente.
@@ -285,6 +312,36 @@ details: |
 
 Tarefas `write` pedem confirmação. Blocos vindos do LLM nunca aceitam `--yes`.
 
+## Progresso das tarefas longas
+
+`db:links`, `code:preprocess` e `install` publicam o andamento em tempo real, porque o
+`CommandExecutor` captura o `stdout` (um `print` só apareceria no fim):
+
+- **TUI:** as linhas aparecem no painel de saída enquanto a tarefa roda (a execução
+  acontece em um worker, então a interface não trava);
+- **CLI** (`python crivonansky.py harness run db:links`): as linhas vão para o `stderr`
+  quando ele é um terminal;
+- **log:** sempre gravado em `<run_dir>/progress.log` (ou
+  `workspace/install.log`/`workspace/prepare.log`), útil quando a saída é capturada.
+
+Exemplo de linha:
+
+```text
+[db:links] 1234/9876 arquivo(s) (12.5%) — 210.4 MB lidos — 18.2 MB/s — ETA 08:12 — 5120 vínculo(s)
+```
+
+`HARNESS_PROGRESS` controla o canal: `auto` (padrão), `log`, `stderr` ou `off`.
+
+O `db:links` foi otimizado para repositórios grandes: cada instrução SQL é parseada uma
+única vez (o parse alimenta vínculos e FKs) e o resultado é memoizado (o mesmo SQL
+costuma se repetir no legado); a linha de cada ocorrência usa índice em vez de varrer o
+arquivo; bundles `*.min.js`/`*.bundle.js`/`*.pack.js` são ignorados. Para limitar o custo
+em arquivos gigantes, use `--max_file_mb N`:
+
+```text
+/harness run db:links --max_file_mb 8
+```
+
 ## Configuração
 
 Gerada em `workspace/harness.yaml` pelo `install.ps1`. O template
@@ -481,3 +538,13 @@ repositório do harness.
 # ou com o venv do plugin
 commands\complements\harness\.venv\Scripts\python.exe -m pytest tests/harness -q
 ```
+
+## Troubleshooting da instalação
+
+| Sintoma | Causa provável | Ação |
+|---|---|---|
+| `Python 3.13+ (nao encontrado)` mesmo com Python instalado | o `python` do `PATH` é o atalho da Microsoft Store (sai com 9009) e a instalação está fora dos caminhos varridos | `harness install --python C:\caminho\python.exe` ou defina `HARNESS_PYTHON` |
+| Falha no meio do `pip install`/`git clone` que some ao rodar de novo | clone/venv parcial ou arquivo travado (antivírus) | rode de novo: o instalador detecta o estado parcial e refaz a etapa (com retry) |
+| `Acesso negado` ao criar `vendor/`/`workspace/` | pasta dentro de `Program Files`/OneDrive ou sem permissão | mova o repositório para uma pasta do usuário; `harness install --check-only` testa a escrita |
+| RAG não instala por falta de wheel | Python mais novo que 3.13 (ex.: 3.14) sem wheel de `torch` | instale o 3.13 e rode `harness install --python C:\Python313\python.exe` |
+| `db:links` parece travado | saída do comando é capturada até o fim | veja o progresso no painel da TUI, no `stderr` da CLI ou em `<run_dir>/progress.log` |

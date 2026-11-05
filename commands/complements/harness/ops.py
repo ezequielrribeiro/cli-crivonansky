@@ -18,8 +18,9 @@ from pathlib import Path
 
 from .bootstrap import ensure_deps
 from .config_template import config_path, write_default_config
+from .progress import Progress
 from .runner import run_process
-from .types import TaskResult
+from .task_types import TaskResult
 
 PLUGIN_ROOT = Path(__file__).resolve().parent
 FIXTURE_ROOT = PLUGIN_ROOT / "fixture" / "exemplo-locadora"
@@ -74,7 +75,13 @@ def _set_db_env(config_path_arg: str) -> None:
     os.environ["HARNESS_CONFIG"] = config_path_arg
 
 
-def _powershell(script: Path, cwd: Path | None = None, timeout: float = 900, args=()) -> object:
+def _powershell(
+    script: Path,
+    cwd: Path | None = None,
+    timeout: float = 900,
+    args=(),
+    stream=None,
+) -> object:
     cmd = [
         "powershell",
         "-NoProfile",
@@ -84,7 +91,7 @@ def _powershell(script: Path, cwd: Path | None = None, timeout: float = 900, arg
         str(script),
         *args,
     ]
-    return run_process(cmd, cwd=str(cwd) if cwd else None, timeout=timeout)
+    return run_process(cmd, cwd=str(cwd) if cwd else None, timeout=timeout, stream=stream)
 
 
 def _run_task(config_path_arg: str, task: str, params: dict | None = None) -> TaskResult:
@@ -128,6 +135,7 @@ def install(
     force: bool = False,
     skip_docker: bool = False,
     check_only: bool = False,
+    python_exe: str | None = None,
 ) -> TaskResult:
     script = PLUGIN_ROOT / "install.ps1"
     if not script.is_file():
@@ -140,9 +148,26 @@ def install(
         args.append("-SkipDocker")
     if check_only:
         args.append("-CheckOnly")
+    if python_exe:
+        args.extend(["-PythonExe", str(python_exe)])
 
-    result = _powershell(script, cwd=PLUGIN_ROOT, timeout=3600, args=args)
+    # O install.ps1 pode demorar (clones + pip); o log fica no workspace e as
+    # linhas são publicadas em tempo real (stderr na CLI, RichLog na TUI).
+    progress = Progress(
+        "install",
+        log_path=str(PLUGIN_ROOT / "workspace" / "install.log"),
+    )
+    progress.start("executando install.ps1")
+
+    result = _powershell(
+        script,
+        cwd=PLUGIN_ROOT,
+        timeout=3600,
+        args=args,
+        stream=progress.log,
+    )
     if getattr(result, "timed_out", False):
+        progress.finish("timeout")
         return TaskResult(
             False,
             "instalação: timeout",
@@ -159,9 +184,16 @@ def install(
     else:
         details = getattr(result, "combined", "")
 
+    if check_only:
+        progress.finish("verificação concluída" if ok else "falha na verificação")
+        summary = "dependências OK (check-only)" if ok else "falha na verificação das dependências"
+    else:
+        progress.finish("plugin instalado" if ok else "falha na instalação")
+        summary = "plugin instalado" if ok else "falha na instalação do plugin"
+
     return TaskResult(
         ok,
-        "plugin instalado" if ok else "falha na instalação do plugin",
+        summary,
         details=details,
         exit_code=result.exit_code,
     )
@@ -309,10 +341,15 @@ def prepare(
     ]
 
     details = [started.summary]
+    progress = Progress("prepare", log_path=str(PLUGIN_ROOT / "workspace" / "prepare.log"))
+    progress.start(f"base de conhecimento: {len(tasks)} etapa(s)")
+
     for task, params in tasks:
+        progress.log(f"executando {task}")
         result = _run_task(config, task, params)
         details.append(result.summary)
         if not result.success:
+            progress.finish(f"interrompido em {task}")
             return TaskResult(
                 False,
                 f"preparação interrompida em {task}",
@@ -320,7 +357,9 @@ def prepare(
                 exit_code=result.exit_code,
                 status=result.status,
             )
+        progress.log(f"{task}: {result.summary}")
 
+    progress.finish("base de conhecimento preparada")
     return TaskResult(True, "base de conhecimento preparada", details="\n".join(details))
 
 

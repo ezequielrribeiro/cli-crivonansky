@@ -4,7 +4,7 @@ from pathlib import Path
 
 from commands.complements.harness import config_template, ops
 from commands.complements.harness.runner import ProcessResult
-from commands.complements.harness.types import TaskResult
+from commands.complements.harness.task_types import TaskResult
 
 
 def test_config_template_renders_plugin_root(tmp_path):
@@ -51,9 +51,10 @@ def test_install_calls_plugin_installer(tmp_path, monkeypatch):
 
     calls = {}
 
-    def fake_run(cmd, cwd=None, timeout=60, shell=False, env=None):
+    def fake_run(cmd, cwd=None, timeout=60, shell=False, env=None, stream=None):
         calls["cmd"] = cmd
         calls["cwd"] = cwd
+        calls["stream"] = stream
         return ProcessResult(0, "ok", "")
 
     written = {}
@@ -72,6 +73,30 @@ def test_install_calls_plugin_installer(tmp_path, monkeypatch):
     assert calls["cmd"][:2] == ["powershell", "-NoProfile"]
     assert "-ForceConfig" in calls["cmd"]
     assert written["force"] is True
+
+
+def test_install_passes_python_override_and_stream(tmp_path, monkeypatch):
+    plugin = tmp_path / "harness"
+    plugin.mkdir()
+    (plugin / "install.ps1").write_text("# fake\n", encoding="utf-8")
+
+    calls = {}
+
+    def fake_run(cmd, cwd=None, timeout=60, shell=False, env=None, stream=None):
+        calls["cmd"] = cmd
+        calls["stream"] = stream
+        return ProcessResult(0, "ok", "")
+
+    monkeypatch.setattr(ops, "PLUGIN_ROOT", plugin)
+    monkeypatch.setattr(ops, "run_process", fake_run)
+    monkeypatch.setattr(ops, "write_default_config", lambda root, force=False: Path(root) / "workspace" / "harness.yaml")
+
+    result = ops.install(python_exe=r"C:\Python314\python.exe")
+
+    assert result.success is True
+    assert "-PythonExe" in calls["cmd"]
+    assert r"C:\Python314\python.exe" in calls["cmd"]
+    assert callable(calls["stream"])
 
 
 def test_install_reports_missing_installer(tmp_path, monkeypatch):
