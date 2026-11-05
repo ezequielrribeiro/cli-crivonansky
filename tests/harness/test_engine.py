@@ -110,3 +110,30 @@ def test_engine_writes_run_artifacts(tmp_path):
     engine.handle_block("harness: 1\ntask: test:echo3\nparams: {}\n")
 
     assert (workspace / "runs" / "runs.jsonl").is_file()
+
+
+def test_engine_error_details_include_path_and_traceback(tmp_path):
+    load_tasks()
+
+    def boom(ctx, params):
+        raise FileNotFoundError(2, "caminho sumiu", r"C:\nao\existe\arquivo.txt")
+
+    register(
+        TaskSpec(
+            name="test:boom",
+            intent="read",
+            description="",
+            required=[],
+            optional=[],
+            handler=boom,
+        )
+    )
+    config, _workspace = _config(tmp_path)
+    engine = HarnessEngine(config_path=str(config), interactive=False, sinks=["stdout"])
+
+    text, status = engine.handle_block("harness: 1\ntask: test:boom\nparams: {}\n")
+
+    assert status == "error"
+    assert "erro ao executar" in text
+    assert "caminho: C:\\nao\\existe\\arquivo.txt" in text
+    assert "Traceback" in text

@@ -66,3 +66,4 @@ def test_env_check_ok(tmp_path, monkeypatch):
     assert result.success is True
     assert "ambiente OK" in result.summary
     assert "rag (tools.rag)" in result.details
+    assert "workspace" in result.details

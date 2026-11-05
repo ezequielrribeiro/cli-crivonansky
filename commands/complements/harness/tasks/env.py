@@ -55,6 +55,17 @@ def handle(ctx, params):
     add(*_check_command("git", ["git", "--version"], timeout=10))
     add(*_check_command("docker", ["docker", "info"], timeout=15))
 
+    workspace_path = os.path.abspath(ctx.workspace)
+    try:
+        os.makedirs(workspace_path, exist_ok=True)
+        probe = os.path.join(workspace_path, f".env-check-{os.getpid()}.tmp")
+        with open(probe, "w", encoding="utf-8") as handle:
+            handle.write("ok")
+        os.remove(probe)
+        add(_line("workspace", True, workspace_path), True)
+    except OSError as exc:
+        add(_line("workspace", False, f"{workspace_path}: {exc}"), False)
+
     plugin_python = get_tool_path(ctx.config, "python")
     if plugin_python and looks_like_path(plugin_python):
         exists = os.path.isfile(plugin_python)

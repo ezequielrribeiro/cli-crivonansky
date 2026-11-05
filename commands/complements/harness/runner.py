@@ -47,18 +47,35 @@ def run_process(
     """
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
 
-    proc = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        shell=shell,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-        creationflags=creationflags,
-    )
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            shell=shell,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            creationflags=creationflags,
+        )
+    except OSError as exc:
+        # WinError 2/3 aqui quase sempre é caminho errado no harness.yaml:
+        # deixe explícito qual comando e qual diretório falharam.
+        if isinstance(cmd, (list, tuple)):
+            command = " ".join(str(part) for part in cmd)
+        else:
+            command = str(cmd)
+        detail = (
+            f"{exc.strerror or exc} "
+            f"(comando: {command}; cwd: {cwd or os.getcwd()})"
+        )
+        error = type(exc)(exc.errno, detail)
+        winerror = getattr(exc, "winerror", None)
+        if winerror:
+            error.winerror = winerror
+        raise error from exc
 
     chunks_out: list[str] = []
     chunks_err: list[str] = []

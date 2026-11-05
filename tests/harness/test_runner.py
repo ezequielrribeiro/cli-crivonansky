@@ -1,6 +1,9 @@
 """Testes do runner de subprocessos (captura, streaming e timeout)."""
 
+import os
 import sys
+
+import pytest
 
 from commands.complements.harness.runner import run_process
 
@@ -47,3 +50,13 @@ def test_timeout_kills_the_process():
     )
 
     assert result.timed_out is True
+
+
+def test_spawn_failure_reports_command_and_cwd():
+    with pytest.raises(OSError) as info:
+        run_process(["python-que-nao-existe-xyz.exe"], cwd=os.getcwd(), timeout=10)
+
+    message = str(info.value)
+    assert "python-que-nao-existe-xyz.exe" in message
+    assert "comando:" in message
+    assert "cwd:" in message

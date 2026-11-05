@@ -2,6 +2,7 @@
 
 import json
 import time
+import traceback
 
 from .catalog import get_task, load_tasks
 from .config import get_output, get_workspace, load_config
@@ -11,6 +12,21 @@ from .policy import check_policy
 from .runs import RunStore
 from .sinks import emit
 from .task_types import TaskContext
+
+
+def _error_details(exc: Exception) -> str:
+    """Detalhes de uma exceção inesperada, com o caminho quando for OSError."""
+    lines = [f"{type(exc).__name__}: {exc}"]
+    filename = getattr(exc, "filename", None)
+    if filename:
+        lines.append(f"caminho: {filename}")
+    winerror = getattr(exc, "winerror", None)
+    if winerror:
+        lines.append(f"winerror: {winerror}")
+
+    trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    lines.extend(["", trace[-3000:]])
+    return "\n".join(lines)
 
 
 class HarnessEngine:
@@ -147,7 +163,15 @@ class HarnessEngine:
             return self._finish(block.id, block.task, "denied", 3, start, str(exc), "", [], raw)
         except Exception as exc:  # noqa: BLE001
             return self._finish(
-                block.id, block.task, "error", 1, start, f"erro ao executar: {exc}", str(exc), [], raw
+                block.id,
+                block.task,
+                "error",
+                1,
+                start,
+                f"erro ao executar: {exc}",
+                _error_details(exc),
+                [],
+                raw,
             )
 
         status = result.status or ("success" if result.success else "failure")

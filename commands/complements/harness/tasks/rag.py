@@ -94,23 +94,11 @@ def _publish_tree(src: str, dst: str, extensions: set[str] | None = None) -> int
     return count
 
 
-def handle_sync(ctx, params):
-    problem = tools_problem(ctx.config)
-    if problem:
-        return TaskResult(
-            False,
-            problem,
-            details=tools_hint(ctx, problem),
-            exit_code=2,
-        )
-
-    rag_path = get_tool_path(ctx.config, "rag", "path")
-    rag_python = get_tool_path(ctx.config, "rag", "python")
-
-    raw = os.path.join(rag_path, "data", "raw")
+def _publish(ctx, raw: str) -> tuple[int, int]:
+    """Espelha o workspace no ``data/raw`` do RAG; devolve (total, fontes de código)."""
     ws = workspace(ctx)
-
     copied = 0
+
     copied += _copy_tree_files(
         os.path.join(ws, "knowledge", "db", "tables"),
         os.path.join(raw, "tech", "_harness", "db"),
@@ -157,6 +145,43 @@ def handle_sync(ctx, params):
         {".md"},
     )
 
+    return copied, code_copied
+
+
+def _path_error(ctx, exc: OSError) -> TaskResult:
+    """Erro de caminho (WinError 2/3) durante a publicação ou a ingestão."""
+    rag_path = get_tool_path(ctx.config, "rag", "path") or "(ausente)"
+    return TaskResult(
+        False,
+        f"falha de caminho ao preparar/ingerir o RAG: {exc}",
+        details="\n".join(
+            [
+                str(exc),
+                "",
+                f"tools.rag.path: {rag_path}",
+                "Confira se o diretório existe e se data/raw é um diretório (não um arquivo).",
+                "Para recriar o RAG: python crivonansky.py harness install",
+            ]
+        ),
+        exit_code=2,
+    )
+
+
+def handle_sync(ctx, params):
+    problem = tools_problem(ctx.config)
+    if problem:
+        return TaskResult(
+            False,
+            problem,
+            details=tools_hint(ctx, problem),
+            exit_code=2,
+        )
+
+    rag_path = get_tool_path(ctx.config, "rag", "path")
+    rag_python = get_tool_path(ctx.config, "rag", "python")
+
+    raw = os.path.join(rag_path, "data", "raw")
+
     cmd = [rag_python, "main.py", "ingest"]
     if params.get("full"):
         cmd.append("--full")
@@ -164,7 +189,12 @@ def handle_sync(ctx, params):
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
 
-    res = run_process(cmd, cwd=rag_path, timeout=7200, env=env)
+    try:
+        copied, code_copied = _publish(ctx, raw)
+        res = run_process(cmd, cwd=rag_path, timeout=7200, env=env)
+    except OSError as exc:
+        return _path_error(ctx, exc)
+
     if res.timed_out:
         return TaskResult(False, "ingestão do RAG: timeout", details=res.combined, exit_code=124, status="timeout")
     if res.exit_code != 0:

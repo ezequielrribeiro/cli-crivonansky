@@ -1,3 +1,5 @@
+import shutil
+
 from commands.complements.harness.runner import ProcessResult
 from commands.complements.harness.tasks import rag
 from commands.complements.harness.task_types import TaskContext
@@ -164,3 +166,17 @@ def test_rag_sync_reports_missing_rag_dir(tmp_path):
     assert result.success is False
     assert result.exit_code == 2
     assert "diretório do RAG não encontrado" in result.summary
+
+
+def test_rag_sync_reports_broken_data_path(tmp_path):
+    ctx = _context(tmp_path)
+    data = tmp_path / "rag" / "data"
+    shutil.rmtree(data)
+    data.write_text("nao sou um diretorio", encoding="utf-8")
+
+    result = rag.handle_sync(ctx, {})
+
+    assert result.success is False
+    assert result.exit_code == 2
+    assert "falha de caminho" in result.summary
+    assert "data/raw" in result.details

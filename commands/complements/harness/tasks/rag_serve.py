@@ -225,8 +225,16 @@ def _start(ctx, host: str, port: int, api_base: str, timeout: float) -> TaskResu
         str(port),
     ]
 
-    stdout = open(stdout_path, "a", encoding="utf-8")
-    stderr = open(stderr_path, "a", encoding="utf-8")
+    try:
+        stdout = open(stdout_path, "a", encoding="utf-8")
+        stderr = open(stderr_path, "a", encoding="utf-8")
+    except OSError as exc:
+        return TaskResult(
+            False,
+            f"falha ao abrir os logs da API do RAG: {exc}",
+            details=f"{stdout_path}\n{stderr_path}",
+            exit_code=2,
+        )
     try:
         kwargs = {}
         if os.name == "nt":
@@ -247,7 +255,13 @@ def _start(ctx, host: str, port: int, api_base: str, timeout: float) -> TaskResu
             **kwargs,
         )
     except OSError as exc:
-        return TaskResult(False, "falha ao iniciar a API do RAG", details=str(exc), exit_code=1)
+        command = " ".join(cmd)
+        return TaskResult(
+            False,
+            "falha ao iniciar a API do RAG",
+            details=f"{exc}\ncomando: {command}\ncwd: {rag_path}",
+            exit_code=1,
+        )
     finally:
         stdout.close()
         stderr.close()
