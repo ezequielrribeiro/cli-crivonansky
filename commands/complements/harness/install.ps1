@@ -444,9 +444,34 @@ function Sync-Repo([string]$name, [string]$remote) {
     Write-Ok "vendor\$name clonado"
 }
 
-function Test-Venv([string]$venv) {
+function Get-VenvVersion([string]$venv) {
+    # Le a versao major.minor do pyvenv.cfg (ex.: "3.13").
+    $cfg = Join-Path $venv "pyvenv.cfg"
+    if (-not (Test-Path -LiteralPath $cfg)) { return $null }
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        foreach ($line in Get-Content -LiteralPath $cfg -ErrorAction Stop) {
+            if ($line -match '^\s*version\s*=\s*(\d+)\.(\d+)') {
+                return "$($matches[1]).$($matches[2])"
+            }
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+    return $null
+}
+
+function Test-Venv([string]$venv, [string]$expectedVersion = "") {
     $python = Join-Path $venv "Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $python)) { return $false }
+
+    if ($expectedVersion) {
+        $current = Get-VenvVersion $venv
+        if (-not $current -or $current -ne $expectedVersion) { return $false }
+    }
 
     $probe = Invoke-Native @($python, "-I", "-c", "import sys; print(sys.version_info[:2])")
     if ($probe.ExitCode -ne 0) { return $false }
@@ -457,18 +482,25 @@ function Test-Venv([string]$venv) {
 
 function Ensure-Venv([string]$dir) {
     $venv = Join-Path $dir ".venv"
+    $expected = (($script:Python.Version -split '\.')[0..1] -join '.')
 
-    if (Test-Venv $venv) {
-        Write-Ok "venv ja existe e esta funcional em $dir"
+    if (Test-Venv $venv $expected) {
+        Write-Ok "venv ja existe com Python $expected em $dir"
         return (Join-Path $venv "Scripts\python.exe")
     }
 
     if (Test-Path -LiteralPath $venv) {
-        Write-Warn "venv incompleto em $dir (execucao anterior interrompida); recriando"
+        $current = Get-VenvVersion $venv
+        if ($current -and $current -ne $expected) {
+            Write-Warn "venv em $dir usa Python $current; atualizando para $expected"
+        }
+        else {
+            Write-Warn "venv incompleto em $dir (execucao anterior interrompida); recriando"
+        }
         Remove-PathWithRetry $venv
     }
 
-    Write-Host "    criando venv em $dir ..."
+    Write-Host "    criando venv em $dir (Python $expected) ..."
     Invoke-WithRetry -Description "criar venv em $dir" -Action {
         $created = Invoke-Native @($script:Python.Path, "-I", "-m", "venv", $venv)
         if ($created.ExitCode -ne 0) {
@@ -477,8 +509,8 @@ function Ensure-Venv([string]$dir) {
         }
     }
 
-    if (-not (Test-Venv $venv)) {
-        throw "venv criado em $dir, mas o pip nao esta funcional. Verifique antivirus/permissao na pasta."
+    if (-not (Test-Venv $venv $expected)) {
+        throw "venv criado em $dir, mas nao esta funcional (Python $expected). Verifique antivirus/permissao na pasta."
     }
 
     Write-Ok "venv criado em $dir"

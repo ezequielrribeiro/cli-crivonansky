@@ -66,7 +66,9 @@ O comando é idempotente e **retomável**: cada etapa que toca o disco tem retry
 tentativas), venv pela metade e clone interrompido são detectados e refeitos, e o
 stderr de `git`/`pip` não aborta mais o script (gotcha do PowerShell 5.1 com
 `$ErrorActionPreference = "Stop"`). Rodar de novo após uma falha retoma do ponto
-problemático. Ele **não** sobe contêiner nem inicia a API do RAG.
+problemático. Se o Python escolhido mudar (ex.: 3.13 → 3.15), os venvs existentes são
+**recriados** automaticamente para a nova versão. Ele **não** sobe contêiner nem inicia
+a API do RAG.
 
 ### Descoberta do Python
 
