@@ -229,6 +229,9 @@ def install(
     else:
         progress.finish("plugin instalado" if ok else "falha na instalação")
         summary = "plugin instalado" if ok else "falha na instalação do plugin"
+        codeknow = PLUGIN_ROOT / ".venv" / "Scripts" / "codeknow.exe"
+        if ok and not codeknow.is_file():
+            summary += " (codeknow indisponível: code:index/code:query desativados)"
 
     return TaskResult(
         ok,

@@ -60,6 +60,28 @@ def test_preprocess_removes_stale_sources(tmp_path):
     assert not stale.exists()
 
 
+def test_preprocess_continues_without_codeknow(tmp_path, monkeypatch):
+    ctx = _context(tmp_path)
+    monkeypatch.setattr(
+        preprocess.code_task,
+        "extract_graph",
+        lambda ctx, force=False: TaskResult(
+            False,
+            "codeknow não encontrado: x",
+            exit_code=2,
+            status="unavailable",
+        ),
+    )
+
+    result = preprocess.handle(ctx, {})
+
+    assert result.success is True
+    assert "codeknow indisponível" in result.details
+    src = tmp_path / "ws" / "knowledge" / "code" / "src"
+    assert (src / "app.php").is_file()
+    assert (src / "lib.js").is_file()
+
+
 def test_preprocess_runs_codeknow_and_exports_artifacts(tmp_path, monkeypatch):
     ctx = _context(tmp_path)
     calls = []

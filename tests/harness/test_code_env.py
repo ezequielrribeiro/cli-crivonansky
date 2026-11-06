@@ -36,3 +36,24 @@ def test_extract_runs_outside_repo_and_pins_codegraph_out(tmp_path, monkeypatch)
     assert captured["env"]["CODEGRAPH_OUT"] == str(graph.parent)
     assert captured["cmd"][0] == "codeknow"
     assert "--out" in captured["cmd"]
+
+
+def test_extract_graph_reports_missing_codeknow(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    ctx = TaskContext(
+        config={
+            "legacy": {"repo_path": str(repo)},
+            "tools": {"codeknow": str(tmp_path / "nao-existe" / "codeknow.exe")},
+        },
+        workspace=str(tmp_path / "ws"),
+        run_dir=str(tmp_path / "run"),
+    )
+
+    result = code.extract_graph(ctx)
+
+    assert result.success is False
+    assert result.exit_code == 2
+    assert result.status == "unavailable"
+    assert "codeknow não encontrado" in result.summary
+    assert "harness install" in result.details

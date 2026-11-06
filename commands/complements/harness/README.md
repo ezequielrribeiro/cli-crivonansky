@@ -55,7 +55,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 2. confere `requirements.txt` e a fixture e testa a escrita em `vendor/` e `workspace/`;
 3. clona/atualiza `local-rag-system` e `codeknow` em `vendor/`;
 4. cria `commands/complements/harness/.venv` e instala `requirements.txt`;
-5. instala `codeknow` em modo editável nesse venv;
+5. instala `codeknow` em modo editável nesse venv (se o `tree-sitter` não puder
+   ser compilado, avisa e continua — `code:index`/`code:query` ficam indisponíveis);
 6. cria/reaproveita o venv do RAG em `vendor/local-rag-system/.venv`, instala
    `requirements.txt` e extras (`scikit-learn`, `requests`, `pytest`, `httpx`);
 7. gera `workspace/harness.yaml` a partir de `harness.example.yaml`, substituindo o
@@ -72,9 +73,20 @@ problemático. Ele **não** sobe contêiner nem inicia a API do RAG.
 O instalador procura, nesta ordem: `-PythonExe`, `HARNESS_PYTHON`, `py -0p`,
 `C:\Python3*`, `%LOCALAPPDATA%\Programs\Python`, `%LOCALAPPDATA%\Python`, o registro
 (`HKLM`/`HKCU\SOFTWARE\Python\PythonCore`) e o `PATH` (ignorando o atalho da Microsoft
-Store). Se houver um 3.13 ele é preferido, porque é a versão em que as dependências do
-RAG (`torch`/`sentence-transformers`) são validadas; 3.14+ funciona, mas pode não ter
-wheel para alguma dependência — nesse caso o próprio instalador avisa.
+Store).
+
+A escolha depende do compilador C++:
+
+- **com** Visual Studio Build Tools (`vswhere`/`cl.exe`): usa a versão **mais nova**
+  (hoje 3.15) e compila do fonte os pacotes que ainda não têm wheel (`tree-sitter`,
+  `zstandard`; o PyYAML cai no modo Python puro);
+- **sem** compilador: usa a versão mais nova que tem **wheels prontas para todo o
+  stack** (hoje 3.14), evitando builds que falhariam.
+
+Em ambos os casos `-PythonExe`/`HARNESS_PYTHON` forçam o interpretador. Se o codeknow
+não instalar (tree-sitter sem compilador), o instalador avisa e **continua**: o resto do
+harness funciona e `code:index`/`code:query` ficam indisponíveis — use `--python 3.14`
+ou instale o Build Tools para habilitá-los.
 
 Se a detecção falhar, informe o caminho:
 
@@ -546,6 +558,7 @@ commands\complements\harness\.venv\Scripts\python.exe -m pytest tests/harness -q
 | `Python 3.13+ (nao encontrado)` mesmo com Python instalado | o `python` do `PATH` é o atalho da Microsoft Store (sai com 9009) e a instalação está fora dos caminhos varridos | `harness install --python C:\caminho\python.exe` ou defina `HARNESS_PYTHON` |
 | Falha no meio do `pip install`/`git clone` que some ao rodar de novo | clone/venv parcial ou arquivo travado (antivírus) | rode de novo: o instalador detecta o estado parcial e refaz a etapa (com retry) |
 | `Acesso negado` ao criar `vendor/`/`workspace/` | pasta dentro de `Program Files`/OneDrive ou sem permissão | mova o repositório para uma pasta do usuário; `harness install --check-only` testa a escrita |
-| RAG não instala por falta de wheel | Python mais novo que 3.13 (ex.: 3.14) sem wheel de `torch` | instale o 3.13 e rode `harness install --python C:\Python313\python.exe` |
+| RAG não instala por falta de wheel | Python mais novo que 3.14 sem wheel de `torch` | use `harness install --python C:\Python314\python.exe` (o instalador já prefere a versão com wheels) |
+| `pip install` falha compilando `tree-sitter`/`zstandard` | Python 3.15 sem Build Tools C++ | instale o Visual Studio Build Tools (C++) ou use `--python` 3.14; sem o codeknow o restante do harness funciona |
 | `db:links` parece travado | saída do comando é capturada até o fim | veja o progresso no painel da TUI, no `stderr` da CLI ou em `<run_dir>/progress.log` |
 | `rag:sync` falha com `WinError 2`/`WinError 3` (`executável`/`caminho especificado` não encontrado) | `tools.rag.path`/`tools.rag.python` inexistentes ou `data/raw` não é um diretório; o `rag:serve` só valida ao iniciar a API | `harness config` mostra `rag_python_exists`/`rag_path_exists`; rode `harness install` (ou ajuste `tools.rag.*`) e confirme com `harness run env:check` |

@@ -188,41 +188,46 @@ def handle(ctx, params):
         graph_ok = index_result.success
         notes.append(index_result.summary)
         if not graph_ok:
-            # A cópia já está pronta; o grafo pode ser refeito depois.
-            write_json(
-                os.path.join(code_dir, "preprocess.json"),
-                {
-                    "repo": repo,
-                    "files": copied,
-                    "skipped": skipped,
-                    "graph": None,
-                    "error": index_result.details[-2000:],
-                },
-            )
-            return TaskResult(
-                False,
-                "código copiado, mas o codeknow falhou",
-                details=index_result.details,
-                artifacts=[source_dir],
-                exit_code=index_result.exit_code,
-                status=index_result.status,
-            )
+            if index_result.status == "unavailable":
+                # codeknow não instalado (ex.: tree-sitter sem compilador no
+                # Python mais novo): a cópia das fontes e o rag:sync continuam.
+                notes.append("codeknow indisponível; grafo e wiki ignorados")
+            else:
+                # A cópia já está pronta; o grafo pode ser refeito depois.
+                write_json(
+                    os.path.join(code_dir, "preprocess.json"),
+                    {
+                        "repo": repo,
+                        "files": copied,
+                        "skipped": skipped,
+                        "graph": None,
+                        "error": index_result.details[-2000:],
+                    },
+                )
+                return TaskResult(
+                    False,
+                    "código copiado, mas o codeknow falhou",
+                    details=index_result.details,
+                    artifacts=[source_dir],
+                    exit_code=index_result.exit_code,
+                    status=index_result.status,
+                )
 
-        report_ok, report_details = _run_cluster_report(ctx)
-        notes.append("relatório gerado" if report_ok else "relatório indisponível")
-        if not report_ok:
-            notes.append(report_details[-500:])
+        if graph_ok:
+            report_ok, report_details = _run_cluster_report(ctx)
+            notes.append("relatório gerado" if report_ok else "relatório indisponível")
+            if not report_ok:
+                notes.append(report_details[-500:])
 
-        wiki_ok = False
-        if not as_bool(params.get("no_wiki")):
-            wiki_ok, wiki_details = _run_export_wiki(ctx)
-            notes.append(
-                f"{_wiki_count(ctx)} artigo(s) wiki"
-                if wiki_ok
-                else "wiki indisponível"
-            )
-            if not wiki_ok:
-                notes.append(wiki_details[-500:])
+            if not as_bool(params.get("no_wiki")):
+                wiki_ok, wiki_details = _run_export_wiki(ctx)
+                notes.append(
+                    f"{_wiki_count(ctx)} artigo(s) wiki"
+                    if wiki_ok
+                    else "wiki indisponível"
+                )
+                if not wiki_ok:
+                    notes.append(wiki_details[-500:])
 
     graph_file = code_task.graph_path(ctx)
     report_file = os.path.join(code_dir, "codegraph-out", "GRAPH_REPORT.md")

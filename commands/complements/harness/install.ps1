@@ -18,6 +18,10 @@
   venv pela metade, arquivo travado pelo antivírus), rode de novo — o estado
   parcial é detectado e refeito. As etapas que tocam o disco têm retry.
 
+  A escolha do Python considera o compilador C++: com Visual Studio Build Tools
+  usa a versão mais nova (hoje 3.15, compilando tree-sitter/zstandard do fonte);
+  sem compilador usa a mais nova com wheels prontas (hoje 3.14).
+
 .PARAMETER CheckOnly
   Apenas verifica as dependências e o estado dos diretórios, sem instalar.
 
@@ -57,9 +61,10 @@ $writeConfig = Join-Path $pluginRoot "scripts\write_config.py"
 
 # Versão mínima exigida (o RAG usa recursos de 3.13+).
 $minimumPython = [version]"3.13"
-# Versão em que as dependências do RAG (torch/sentence-transformers) são
-# validadas; se houver, é a preferida.
-$preferredPython = [version]"3.13"
+# Última versão em que todas as dependências (torch, tree-sitter, zstandard,
+# pyyaml) têm wheel binária no PyPI; acima dela alguns pacotes são compilados
+# do fonte e exigem Visual Studio Build Tools (C++).
+$lastWheelPython = [version]"3.14"
 
 # Dependências externas clonadas dentro do plugin.
 $projects = @(
@@ -199,6 +204,27 @@ function Test-Writable([string]$path) {
 # ---------------------------------------------------------------------------
 # Descoberta do Python
 # ---------------------------------------------------------------------------
+function Test-Compiler {
+    # Detecta um compilador C/C++ (cl.exe ou Visual Studio Build Tools).
+    if (Test-Command "cl") { return $true }
+
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path -LiteralPath $vswhere)) { return $false }
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $install = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath 2>$null
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+
+    return [bool]($install -and (Test-Path -LiteralPath $install))
+}
+
 function Get-PythonVersion([string]$exe) {
     if (-not $exe) { return $null }
     if (-not (Test-Path -LiteralPath $exe)) { return $null }
@@ -349,11 +375,32 @@ function Find-Python {
         return $null
     }
 
-    $preferred = $found | Where-Object { [version]$_.Version -ge $preferredPython -and $_.Version -like "3.13.*" } |
-        Select-Object -First 1
-    if ($preferred) { return $preferred }
+    $newest = $found | Sort-Object { [version]$_.Version } -Descending | Select-Object -First 1
 
-    return $found | Sort-Object { [version]$_.Version } -Descending | Select-Object -First 1
+    # Com compilador C++ instalado, a versão mais recente funciona (alguns
+    # pacotes são compilados do fonte). Sem compilador, prefira a mais nova
+    # que tem wheel binária para todo o stack (hoje, 3.14).
+    if ($script:HasCompiler) {
+        return $newest
+    }
+
+    $withWheels = $found |
+        Where-Object { [version]$_.Version -le $lastWheelPython } |
+        Sort-Object { [version]$_.Version } -Descending |
+        Select-Object -First 1
+
+    if ($withWheels) {
+        if ([version]$newest.Version -gt $lastWheelPython) {
+            Write-Warn "Python $($newest.Version) encontrado, mas sem compilador C++: usando $($withWheels.Version) (wheels prontas)."
+        }
+        return $withWheels
+    }
+
+    if ([version]$newest.Version -gt $lastWheelPython) {
+        Write-Warn "Sem compilador C++ e sem Python ${lastWheelPython}: usando $($newest.Version)."
+        Write-Warn "A instalacao do RAG pode falhar ao compilar zstandard; instale Build Tools C++."
+    }
+    return $newest
 }
 
 # ---------------------------------------------------------------------------
@@ -462,6 +509,11 @@ function Install-Pip([string]$python, [string[]]$pipArgs) {
             throw "$label falhou (sem wheel/distribuicao compativel com o Python $($script:Python.Version)):`n$tail"
         }
 
+        # Falha ao compilar um pacote sem wheel (precisa de compilador C++).
+        if ($result.Output -match "Microsoft Visual C\+\+|error: subprocess-exited-with-error|Failed building wheel") {
+            throw "$label falhou ao compilar uma dependencia sem wheel para o Python $($script:Python.Version).`nInstale o Visual Studio Build Tools (C++) ou rode com -PythonExe apontando para o Python $lastWheelPython (que tem wheels prontas).`n$tail"
+        }
+
         if ($attempt -ge 3) {
             throw "$label falhou apos 3 tentativa(s):`n$tail"
         }
@@ -481,6 +533,14 @@ $missing = @()
 if (-not (Test-Command "git")) { $missing += "Git" }
 if (-not $SkipDocker -and -not (Test-Command "docker")) { $missing += "Docker Desktop" }
 
+$script:HasCompiler = Test-Compiler
+if ($script:HasCompiler) {
+    Write-Ok "Compilador C++ detectado (pacotes sem wheel podem ser compilados)"
+}
+else {
+    Write-Warn "Sem compilador C++: sera escolhido o Python mais novo com wheels prontas"
+}
+
 $script:Python = $null
 try {
     $script:Python = Find-Python
@@ -494,9 +554,9 @@ if (-not $script:Python) {
 else {
     $pyVer = & $script:Python.Path --version 2>&1
     Write-Ok "$pyVer ($($script:Python.Path)) - origem: $($script:Python.Source)"
-    if ([version]$script:Python.Version -ge [version]"3.14") {
-        Write-Warn "Python $($script:Python.Version) e mais novo que o validado ($preferredPython)."
-        Write-Warn "Se a instalacao do RAG falhar por falta de wheel, use -PythonExe com um 3.13."
+    if ([version]$script:Python.Version -gt $lastWheelPython) {
+        Write-Warn "Python $($script:Python.Version) e mais novo que $lastWheelPython."
+        Write-Warn "tree-sitter e zstandard serao compilados do fonte (requer Build Tools C++)."
     }
 }
 
@@ -566,10 +626,22 @@ Upgrade-Pip $pluginPip
 Write-Host "    instalando requirements do plugin ..."
 Install-Pip $pluginPip @("-r", $requirements)
 
+$script:CodeknowOk = $false
 $codeknowDir = Join-Path $vendorRoot "codeknow"
 if (Test-Path (Join-Path $codeknowDir "pyproject.toml")) {
     Write-Host "    instalando codeknow (editavel) no venv do plugin ..."
-    Install-Pip $pluginPip @("-e", $codeknowDir)
+    try {
+        Install-Pip $pluginPip @("-e", $codeknowDir)
+        $script:CodeknowOk = $true
+        Write-Ok "codeknow instalado"
+    }
+    catch {
+        # codeknow (tree-sitter) pode precisar de compilador C++ no Python mais
+        # novo. O resto do harness (db:links, docs, rag) funciona sem ele.
+        Write-Warn "codeknow nao instalou: $($_.Exception.Message)"
+        Write-Warn "code:index/code:query ficam indisponiveis; o restante funciona."
+        Write-Warn "Use -PythonExe com o Python $lastWheelPython (wheels prontas) ou instale Build Tools C++."
+    }
 }
 else {
     Write-Warn "codeknow nao encontrado em vendor; code:index ficara indisponivel"
@@ -615,6 +687,10 @@ Write-Step "Instalacao concluida"
 $total = (Get-Date) - $script:StartedAt
 Write-Host ""
 Write-Host ("Tudo dentro de: {0} (em {1:hh\:mm\:ss})" -f $pluginRoot, $total) -ForegroundColor Cyan
+if (-not $script:CodeknowOk) {
+    Write-Warn "codeknow indisponivel: code:index/code:query nao vao funcionar."
+    Write-Warn "O restante do harness (db:links, docs:import, rag:sync) esta pronto."
+}
 Write-Host "Proximos passos:" -ForegroundColor Cyan
 Write-Host "  1. Suba o ambiente:  python crivonansky.py harness start"
 Write-Host "  2. Prepare a base:   python crivonansky.py harness prepare"

@@ -6,11 +6,37 @@ from ..catalog import register
 from ..config import get_tool_path
 from ..runner import run_process
 from ..task_types import TaskResult, TaskSpec
-from ..util import as_bool, as_int, ensure_dir, legacy_repo, workspace
+from ..util import as_bool, as_int, ensure_dir, legacy_repo, looks_like_path, workspace
 
 
 def codeknow_bin(ctx) -> str:
     return get_tool_path(ctx.config, "codeknow") or "codeknow"
+
+
+def available(ctx) -> bool | None:
+    """True/False quando o binário é um caminho; None para nome de comando.
+
+    Com ``None`` deixamos o SO resolver via PATH (e tratamos o OSError do spawn).
+    """
+    binary = codeknow_bin(ctx)
+    if not looks_like_path(binary):
+        return None
+    return os.path.isfile(binary)
+
+
+def _unavailable(ctx, detail: str = "") -> TaskResult:
+    return TaskResult(
+        False,
+        f"codeknow não encontrado: {codeknow_bin(ctx)}",
+        details=(
+            (detail + "\n" if detail else "")
+            + "code:index/code:query ficam indisponíveis até o codeknow ser instalado.\n"
+            + "Rode '/harness install' (o codeknow vem do vendor/) ou use "
+            + "'code:preprocess --no-codeknow'."
+        ),
+        exit_code=2,
+        status="unavailable",
+    )
 
 
 def out_dir(ctx) -> str:
@@ -42,6 +68,9 @@ def process_env(ctx=None) -> dict:
 
 def extract_graph(ctx, force: bool = False) -> TaskResult:
     """Roda `codeknow extract` e valida a geração do graph.json."""
+    if available(ctx) is False:
+        return _unavailable(ctx)
+
     repo = legacy_repo(ctx)
     if not os.path.isdir(repo):
         return TaskResult(False, f"repositório não encontrado: {repo}", exit_code=2)
@@ -53,7 +82,10 @@ def extract_graph(ctx, force: bool = False) -> TaskResult:
 
     # Executa fora do repo: o codeknow pode criar cache/codegraph-out no cwd
     # mesmo com --out absoluto, e o harness não deve escrever no legado.
-    res = run_process(cmd, cwd=workspace(ctx), timeout=1800, env=process_env(ctx))
+    try:
+        res = run_process(cmd, cwd=workspace(ctx), timeout=1800, env=process_env(ctx))
+    except OSError as exc:
+        return _unavailable(ctx, str(exc))
     if res.timed_out:
         return TaskResult(False, "codeknow extract: timeout", details=res.combined, exit_code=124, status="timeout")
     if res.exit_code != 0:
@@ -82,6 +114,9 @@ def handle_index(ctx, params):
 
 
 def _run_query(ctx, command: str, argument: str, params: dict):
+    if available(ctx) is False:
+        return _unavailable(ctx)
+
     graph = graph_path(ctx)
     if not os.path.isfile(graph):
         return TaskResult(False, "graph.json não encontrado; rode code:index", exit_code=2)
@@ -90,7 +125,10 @@ def _run_query(ctx, command: str, argument: str, params: dict):
     if command == "query":
         cmd.extend(["--budget", str(as_int(params.get("budget"), 2000))])
 
-    res = run_process(cmd, cwd=workspace(ctx), timeout=180, env=process_env(ctx))
+    try:
+        res = run_process(cmd, cwd=workspace(ctx), timeout=180, env=process_env(ctx))
+    except OSError as exc:
+        return _unavailable(ctx, str(exc))
     if res.timed_out:
         return TaskResult(False, f"codeknow {command}: timeout", details=res.combined, exit_code=124, status="timeout")
 
