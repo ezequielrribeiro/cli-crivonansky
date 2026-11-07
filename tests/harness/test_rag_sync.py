@@ -180,3 +180,6 @@ def test_rag_sync_reports_broken_data_path(tmp_path):
     assert result.exit_code == 2
     assert "falha de caminho" in result.summary
     assert "data/raw" in result.details
+    assert "etapa: criar data/raw" in result.details
+    assert "caminho:" in result.details
+    assert "Traceback" in result.details

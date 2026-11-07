@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import traceback
 import urllib.error
 import urllib.request
 
@@ -148,21 +149,43 @@ def _publish(ctx, raw: str) -> tuple[int, int]:
     return copied, code_copied
 
 
-def _path_error(ctx, exc: OSError) -> TaskResult:
-    """Erro de caminho (WinError 2/3) durante a publicação ou a ingestão."""
+def _path_error(ctx, exc: OSError, step: str) -> TaskResult:
+    """Erro de caminho (WinError 2/3) com a etapa, o caminho e o traceback."""
     rag_path = get_tool_path(ctx.config, "rag", "path") or "(ausente)"
+    rag_python = get_tool_path(ctx.config, "rag", "python") or "(ausente)"
+
+    lines = [f"{type(exc).__name__}: {exc}"]
+    filename = getattr(exc, "filename", None)
+    if filename:
+        lines.append(f"caminho: {filename}")
+    winerror = getattr(exc, "winerror", None)
+    if winerror:
+        lines.append(f"winerror: {winerror}")
+
+    lines.extend(
+        [
+            "",
+            f"etapa: {step}",
+            f"tools.rag.path: {rag_path}",
+            f"tools.rag.python: {rag_python}",
+            "",
+            "Confira se o diretório existe e se data/raw é um diretório (não um arquivo).",
+        ]
+    )
+    if winerror in (2, 3):
+        lines.append(
+            "Se o repositório legado tem caminhos longos (>260 caracteres), habilite "
+            "LongPathsEnabled no Windows ou use caminhos mais curtos."
+        )
+    lines.append("Para recriar o RAG: python crivonansky.py harness install")
+
+    trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    lines.extend(["", trace[-2500:]])
+
     return TaskResult(
         False,
-        f"falha de caminho ao preparar/ingerir o RAG: {exc}",
-        details="\n".join(
-            [
-                str(exc),
-                "",
-                f"tools.rag.path: {rag_path}",
-                "Confira se o diretório existe e se data/raw é um diretório (não um arquivo).",
-                "Para recriar o RAG: python crivonansky.py harness install",
-            ]
-        ),
+        f"falha de caminho ao {step}: {exc}",
+        details="\n".join(lines),
         exit_code=2,
     )
 
@@ -190,10 +213,19 @@ def handle_sync(ctx, params):
     env["PYTHONIOENCODING"] = "utf-8"
 
     try:
+        os.makedirs(raw, exist_ok=True)
+    except OSError as exc:
+        return _path_error(ctx, exc, "criar data/raw")
+
+    try:
         copied, code_copied = _publish(ctx, raw)
+    except OSError as exc:
+        return _path_error(ctx, exc, "publicar no RAG")
+
+    try:
         res = run_process(cmd, cwd=rag_path, timeout=7200, env=env)
     except OSError as exc:
-        return _path_error(ctx, exc)
+        return _path_error(ctx, exc, "executar main.py ingest")
 
     if res.timed_out:
         return TaskResult(False, "ingestão do RAG: timeout", details=res.combined, exit_code=124, status="timeout")
